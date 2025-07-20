@@ -26,7 +26,7 @@ function _lookForPathWithBaseUrl(uriPath: string, baseUrlMap: Record<string, str
 
 export function uriToModuleName(uri: vscode.Uri): string {
     const fileName = Path.basename(uri.path, uri.path.endsWith("ts") ? ".ts" : ".tsx");
-    return _.upperFirst(_.camelCase(fileName));
+    return _.camelCase(fileName);
 }
 
 export function uriToCompletionItem(
