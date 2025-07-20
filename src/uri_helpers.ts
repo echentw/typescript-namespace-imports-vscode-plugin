@@ -116,7 +116,7 @@ export function uriToModuleName(uri: vscode.Uri): string {
 export function uriToCompletionItem(
     uri: vscode.Uri,
     baseUrlMap: Record<string, string>,
-    pathMappings?: Record<string, any>
+    pathMappings: Record<string, any>
 ): vscode.CompletionItem {
     const moduleName = uriToModuleName(uri);
     const importPath = uriToImportPath(uri, baseUrlMap, pathMappings);
