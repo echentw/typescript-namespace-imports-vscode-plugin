@@ -5,7 +5,7 @@ import * as _ from "lodash";
 export function uriToImportPath(
     uri: vscode.Uri,
     baseUrlMap: Record<string, string>,
-    pathMappings?: Record<string, PathMapping>
+    pathMappings: Record<string, PathMapping>
 ): string {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
     const workspaceFolderPath = workspaceFolder === undefined ? "" : workspaceFolder.uri.path;
