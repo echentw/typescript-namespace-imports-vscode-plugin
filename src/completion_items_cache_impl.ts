@@ -141,7 +141,6 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
     private _tsconfigUrisToPathMappings =
         (workspaceFolder: vscode.WorkspaceFolder) =>
         (uris: vscode.Uri[]): Thenable<{ baseUrlMap: Record<string, string>; pathMappings: Record<string, PathMapping> }> => {
-            console.log(`[TSConfig Debug] Processing ${uris.length} tsconfig files for workspace: ${workspaceFolder.name}`);
             const recordPromises = Promise.all(
                 uris.map(tsconfigUri =>
                     vscode.workspace.openTextDocument(tsconfigUri).then(
@@ -151,17 +150,13 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
                                 workspaceFolder.uri.path,
                                 Path.dirname(tsconfigUri.path)
                             );
-                            console.log(`[TSConfig Debug] Relative path for ${tsconfigUri.path}: "${relativePath}"`);
-                            console.log(`[TSConfig Debug] Path mapping has baseUrl: ${!!pathMapping.baseUrl}, paths: ${!!pathMapping.paths}`);
                             
-                            const result = pathMapping.baseUrl || pathMapping.paths
+                            return pathMapping.baseUrl || pathMapping.paths
                                 ? {
                                       baseUrlEntry: pathMapping.baseUrl ? { [relativePath]: pathMapping.baseUrl } : null,
                                       pathMappingEntry: { [relativePath]: pathMapping },
                                   }
                                 : null;
-                            console.log(`[TSConfig Debug] Generated result:`, result);
-                            return result;
                         },
                         error => {
                             console.error(`Error working with ${tsconfigUri.path}: ${error}`);
@@ -171,55 +166,42 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             );
 
             return recordPromises.then(records => {
-                console.log(`[TSConfig Debug] All records:`, records);
                 const baseUrlMap: Record<string, string> = {};
                 const pathMappings: Record<string, PathMapping> = {};
                 
                 records.forEach(r => {
                     if (r) {
-                        console.log(`[TSConfig Debug] Processing record:`, r);
                         if (r.baseUrlEntry) {
-                            console.log(`[TSConfig Debug] Adding baseUrl entry:`, r.baseUrlEntry);
                             Object.assign(baseUrlMap, r.baseUrlEntry);
                         }
-                        console.log(`[TSConfig Debug] Adding path mapping entry:`, r.pathMappingEntry);
                         Object.assign(pathMappings, r.pathMappingEntry);
                     }
                 });
                 
-                console.log(`[TSConfig Debug] Final baseUrlMap:`, baseUrlMap);
-                console.log(`[TSConfig Debug] Final pathMappings:`, pathMappings);
                 return { baseUrlMap, pathMappings };
             });
         };
 
     private _tsconfigDocumentToPathMapping = (tsconfigDoc: vscode.TextDocument): PathMapping => {
-        console.log(`[TSConfig Debug] Parsing tsconfig: ${tsconfigDoc.fileName}`);
         const parseResults = ts.parseConfigFileTextToJson(
             tsconfigDoc.fileName,
             tsconfigDoc.getText()
         );
-        console.log(`[TSConfig Debug] Parse results:`, parseResults);
         const tsconfigObj = parseResults.config;
-        console.log(`[TSConfig Debug] Config object:`, tsconfigObj);
         const pathMapping: PathMapping = {};
         
         if ("compilerOptions" in tsconfigObj) {
             const compilerOptions = tsconfigObj["compilerOptions"];
-            console.log(`[TSConfig Debug] Compiler options:`, compilerOptions);
             
             if ("baseUrl" in compilerOptions) {
                 pathMapping.baseUrl = <string>compilerOptions["baseUrl"];
-                console.log(`[TSConfig Debug] Found baseUrl: ${pathMapping.baseUrl}`);
             }
             
             if ("paths" in compilerOptions) {
                 pathMapping.paths = <Record<string, string[]>>compilerOptions["paths"];
-                console.log(`[TSConfig Debug] Found paths:`, pathMapping.paths);
             }
         }
         
-        console.log(`[TSConfig Debug] Final path mapping:`, pathMapping);
         return pathMapping;
     };
 
