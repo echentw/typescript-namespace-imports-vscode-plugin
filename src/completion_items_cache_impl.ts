@@ -1,15 +1,10 @@
 import * as vscode from "vscode";
-import { uriToCompletionItem } from "./uri_helpers";
+import { PathMapping, uriToCompletionItem } from "./uri_helpers";
 import * as Path from "path";
 import * as ts from "typescript";
 import { CompletionItemsCache } from "./completion_items_cache";
 import { CompletionItemMap } from "./completion_item_map";
 import { CompletionItemMapImpl } from "./completion_item_map_impl";
-
-interface PathMapping {
-    baseUrl?: string;
-    paths?: Record<string, string[]>;
-}
 
 interface Workspace {
     baseUrlMap: Record<string, string>;

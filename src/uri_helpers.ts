@@ -3,23 +3,26 @@ import * as Path from "path";
 import * as _ from "lodash";
 
 export function uriToImportPath(
-    uri: vscode.Uri, 
+    uri: vscode.Uri,
     baseUrlMap: Record<string, string>,
-    pathMappings?: Record<string, any>
+    pathMappings?: Record<string, PathMapping>
 ): string {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
     const workspaceFolderPath = workspaceFolder === undefined ? "" : workspaceFolder.uri.path;
     const uriRelativePath = Path.relative(workspaceFolderPath, uri.path);
-    
+
     // First try path mappings, then fall back to baseUrl
-    const maybePathWithMapping = pathMappings ? _lookForPathWithMapping(uriRelativePath, pathMappings) : null;
-    const maybePathWithBaseUrl = maybePathWithMapping || _lookForPathWithBaseUrl(uriRelativePath, baseUrlMap);
+    const maybePathWithMapping = pathMappings
+        ? _lookForPathWithMapping(uriRelativePath, pathMappings)
+        : null;
+    const maybePathWithBaseUrl =
+        maybePathWithMapping || _lookForPathWithBaseUrl(uriRelativePath, baseUrlMap);
     const importPath = maybePathWithBaseUrl ? maybePathWithBaseUrl : uriRelativePath;
-    
+
     return importPath.slice(0, importPath.length - Path.extname(importPath).length);
 }
 
-function _lookForPathWithMapping(uriPath: string, pathMappings: Record<string, any>): string | null {
+function _lookForPathWithMapping(uriPath: string, pathMappings: Record<string, PathMapping>): string | null {
     let dirname = uriPath;
     let suffix = "";
     
@@ -116,7 +119,7 @@ export function uriToModuleName(uri: vscode.Uri): string {
 export function uriToCompletionItem(
     uri: vscode.Uri,
     baseUrlMap: Record<string, string>,
-    pathMappings: Record<string, any>
+    pathMappings: Record<string, PathMapping>
 ): vscode.CompletionItem {
     const moduleName = uriToModuleName(uri);
     const importPath = uriToImportPath(uri, baseUrlMap, pathMappings);
@@ -127,4 +130,9 @@ export function uriToCompletionItem(
         vscode.TextEdit.insert(new vscode.Position(0, 0), importEdit),
     ];
     return completionItem;
+}
+
+export interface PathMapping {
+    baseUrl?: string;
+    paths?: Record<string, string[]>;
 }
