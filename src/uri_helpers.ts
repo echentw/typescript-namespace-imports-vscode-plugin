@@ -5,7 +5,7 @@ import * as _ from "lodash";
 export function uriToImportPath(
     uri: vscode.Uri,
     baseUrlMap: Record<string, string>,
-    pathMappings: Record<string, PathMapping>
+    pathMappings: Record<string, PathMapping>,
 ): string {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
     const workspaceFolderPath = workspaceFolder === undefined ? "" : workspaceFolder.uri.path;
@@ -119,7 +119,7 @@ export function uriToModuleName(uri: vscode.Uri): string {
 export function uriToCompletionItem(
     uri: vscode.Uri,
     baseUrlMap: Record<string, string>,
-    pathMappings: Record<string, PathMapping>
+    pathMappings: Record<string, PathMapping>,
 ): vscode.CompletionItem {
     const moduleName = uriToModuleName(uri);
     const importPath = uriToImportPath(uri, baseUrlMap, pathMappings);
