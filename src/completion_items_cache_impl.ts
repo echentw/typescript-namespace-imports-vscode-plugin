@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { uriToCompletionItem } from "./uri_helpers";
+import { PathMapping, uriToCompletionItem } from "./uri_helpers";
 import * as Path from "path";
 import * as ts from "typescript";
 import { CompletionItemsCache } from "./completion_items_cache";
@@ -8,6 +8,7 @@ import { CompletionItemMapImpl } from "./completion_item_map_impl";
 
 interface Workspace {
     baseUrlMap: Record<string, string>;
+    pathMappings: Record<string, PathMapping>;
     completionItemsMap: CompletionItemMap;
 }
 
@@ -37,7 +38,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             const workspace = this._cache[workspaceFolder.name];
 
             if (workspace) {
-                const item = uriToCompletionItem(uri, workspace.baseUrlMap);
+                const item = uriToCompletionItem(uri, workspace.baseUrlMap, workspace.pathMappings);
                 workspace.completionItemsMap.putItem(item);
             } else {
                 console.error("Cannot add item: Workspace has not been cached");
@@ -53,7 +54,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             const workspace = this._cache[workspaceFolder.name];
 
             if (workspace) {
-                const item = uriToCompletionItem(uri, workspace.baseUrlMap);
+                const item = uriToCompletionItem(uri, workspace.baseUrlMap, workspace.pathMappings);
                 workspace.completionItemsMap.removeItem(item);
             }
         }
@@ -86,15 +87,16 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
 
     private _addWorkspace = (workspaceFolder: vscode.WorkspaceFolder): void => {
         const typescriptPattern = new vscode.RelativePattern(workspaceFolder, "**/*.{ts,tsx}");
-        this._getWorkspaceBaseUrlMap(workspaceFolder).then(baseUrlMap => {
+        this._getWorkspacePathMappings(workspaceFolder).then(({ baseUrlMap, pathMappings }) => {
             vscode.workspace.findFiles(typescriptPattern).then(
                 uris => {
                     const completionItems: vscode.CompletionItem[] = [];
                     for (const uri of uris) {
-                        completionItems.push(uriToCompletionItem(uri, baseUrlMap));
+                        completionItems.push(uriToCompletionItem(uri, baseUrlMap, pathMappings));
                     }
                     this._cache[workspaceFolder.name] = {
                         baseUrlMap,
+                        pathMappings,
                         completionItemsMap: new CompletionItemMapImpl(
                             completionItems,
                             this._getItemPrefix
@@ -108,16 +110,16 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         });
     };
 
-    private _getWorkspaceBaseUrlMap = (
+    private _getWorkspacePathMappings = (
         workspace: vscode.WorkspaceFolder
-    ): Thenable<Record<string, string>> => {
+    ): Thenable<{ baseUrlMap: Record<string, string>; pathMappings: Record<string, PathMapping> }> => {
         const tsconfigPattern = new vscode.RelativePattern(workspace, "**/tsconfig.json");
 
         return vscode.workspace
             .findFiles(tsconfigPattern)
-            .then(this._tsconfigUrisToBaseUrlMap(workspace), error => {
+            .then(this._tsconfigUrisToPathMappings(workspace), error => {
                 console.error(`Error while working with **/tsconfig.json files ${error}`);
-                return {};
+                return { baseUrlMap: {}, pathMappings: {} };
             });
     };
 
@@ -131,20 +133,23 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
 
     private _getPrefix = (query: string): string => query.substring(0, 1);
 
-    private _tsconfigUrisToBaseUrlMap =
+    private _tsconfigUrisToPathMappings =
         (workspaceFolder: vscode.WorkspaceFolder) =>
-        (uris: vscode.Uri[]): Thenable<Record<string, string>> => {
+        (uris: vscode.Uri[]): Thenable<{ baseUrlMap: Record<string, string>; pathMappings: Record<string, PathMapping> }> => {
             const recordPromises = Promise.all(
                 uris.map(tsconfigUri =>
                     vscode.workspace.openTextDocument(tsconfigUri).then(
                         tsconfigDoc => {
-                            const maybeBaseUrl = this._tsconfigDocumentToBaseUrl(tsconfigDoc);
-                            return maybeBaseUrl
+                            const pathMapping = this._tsconfigDocumentToPathMapping(tsconfigDoc);
+                            const relativePath = Path.relative(
+                                workspaceFolder.uri.path,
+                                Path.dirname(tsconfigUri.path)
+                            );
+                            
+                            return pathMapping.baseUrl || pathMapping.paths
                                 ? {
-                                      [Path.relative(
-                                          workspaceFolder.uri.path,
-                                          Path.dirname(tsconfigUri.path)
-                                      )]: maybeBaseUrl,
+                                      baseUrlEntry: pathMapping.baseUrl ? { [relativePath]: pathMapping.baseUrl } : null,
+                                      pathMappingEntry: { [relativePath]: pathMapping },
                                   }
                                 : null;
                         },
@@ -155,21 +160,44 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
                 )
             );
 
-            return recordPromises.then(records =>
-                records.reduce<Record<string, string>>((acc, r) => (r ? { ...acc, ...r } : acc), {})
-            );
+            return recordPromises.then(records => {
+                const baseUrlMap: Record<string, string> = {};
+                const pathMappings: Record<string, PathMapping> = {};
+                
+                records.forEach(r => {
+                    if (r) {
+                        if (r.baseUrlEntry) {
+                            Object.assign(baseUrlMap, r.baseUrlEntry);
+                        }
+                        Object.assign(pathMappings, r.pathMappingEntry);
+                    }
+                });
+                
+                return { baseUrlMap, pathMappings };
+            });
         };
 
-    private _tsconfigDocumentToBaseUrl = (tsconfigDoc: vscode.TextDocument): string | null => {
+    private _tsconfigDocumentToPathMapping = (tsconfigDoc: vscode.TextDocument): PathMapping => {
         const parseResults = ts.parseConfigFileTextToJson(
             tsconfigDoc.fileName,
             tsconfigDoc.getText()
         );
         const tsconfigObj = parseResults.config;
-        if ("compilerOptions" in tsconfigObj && "baseUrl" in tsconfigObj["compilerOptions"]) {
-            return <string>tsconfigObj["compilerOptions"]["baseUrl"];
+        const pathMapping: PathMapping = {};
+        
+        if ("compilerOptions" in tsconfigObj) {
+            const compilerOptions = tsconfigObj["compilerOptions"];
+            
+            if ("baseUrl" in compilerOptions) {
+                pathMapping.baseUrl = <string>compilerOptions["baseUrl"];
+            }
+            
+            if ("paths" in compilerOptions) {
+                pathMapping.paths = <Record<string, string[]>>compilerOptions["paths"];
+            }
         }
-        return null;
+        
+        return pathMapping;
     };
 
     private _getWorkspaceFolderFromUri = (uri: vscode.Uri): vscode.WorkspaceFolder | undefined => {
