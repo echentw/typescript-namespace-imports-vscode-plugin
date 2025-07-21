@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 
+// TODO: what is this a map of?
 export interface CompletionItemMap {
-    putItem(item: vscode.CompletionItem): vscode.CompletionItem;
+    putItem(item: vscode.CompletionItem): void;
     getItemsAt(key: string): vscode.CompletionItem[];
     removeItem(item: vscode.CompletionItem): void;
 }
@@ -20,31 +21,31 @@ export class CompletionItemMapImpl implements CompletionItemMap {
 
     constructor(
         items: vscode.CompletionItem[],
-        private _getKey: (item: vscode.CompletionItem) => string
+        private makeKey: (item: vscode.CompletionItem) => string
     ) {
         for (const item of items) {
             this.putItem(item);
         }
     }
 
-    putItem = (item: vscode.CompletionItem): vscode.CompletionItem => {
-        const key = this._getKey(item);
-        this._map[key] = this._map[key] ? [...this._map[key], item] : [item];
-        return item;
+    putItem = (item: vscode.CompletionItem): void => {
+        const key = this.makeKey(item);
+        if (this._map[key] === undefined) {
+            this._map[key] = [];
+        } else {
+            this._map[key].push(item);
+        }
     };
 
     getItemsAt = (key: string): vscode.CompletionItem[] => {
-        const maybeItems = this._map[key];
-
-        return maybeItems || [];
+        return this._map[key] ?? [];
     };
 
     removeItem = (item: vscode.CompletionItem): void => {
-        const key = this._getKey(item);
-        const maybeItems = this._map[key];
-
-        if (maybeItems) {
-            this._map[key] = maybeItems.filter(i => i !== item);
+        const key = this.makeKey(item);
+        const itemsInMap = this._map[key];
+        if (itemsInMap !== undefined) {
+            this._map[key] = itemsInMap.filter(itemInMap => itemInMap !== item);
         }
     };
 }
