@@ -24,7 +24,8 @@
         "watch": "npm run -S esbuild-base -- --sourcemap --watch",
         "lint": "eslint . --ext .ts",
         "format": "prettier --write src/*.ts src/**/*.ts",
-        "tsc-watch": "tsc --watch"
+        "tsc-watch": "tsc --watch",
+        "tsc-build": "tsc"
     },
     "devDependencies": {
         "@types/lodash": "^4.14.118",

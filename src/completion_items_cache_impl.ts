@@ -38,7 +38,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
 
             if (workspace) {
                 const project = this._findProjectForFile(uri, workspace);
-                if (project) {
+                if (project && project.completionItemsMap) {
                     const item = uriToCompletionItemForProject(uri, project);
                     project.completionItemsMap.putItem(item);
                     workspace.fileToProjectCache.set(uri.path, project);
@@ -62,7 +62,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
                 const project = workspace.fileToProjectCache.get(uri.path) || 
                                 this._findProjectForFile(uri, workspace);
                 
-                if (project) {
+                if (project && project.completionItemsMap) {
                     const item = uriToCompletionItemForProject(uri, project);
                     project.completionItemsMap.removeItem(item);
                     workspace.fileToProjectCache.delete(uri.path);
@@ -90,7 +90,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         const currentProject = workspace.fileToProjectCache.get(currentUri.path) ||
                               this._findProjectForFile(currentUri, workspace);
 
-        if (!currentProject) {
+        if (!currentProject || !currentProject.completionItemsMap) {
             console.warn(`No TypeScript project found for current file: ${currentUri.path}`);
             return [];
         }
@@ -124,7 +124,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
                     // Assign each file to its appropriate project
                     for (const uri of uris) {
                         const project = this._findProjectForFile(uri, workspace);
-                        if (project) {
+                        if (project && project.completionItemsMap) {
                             const item = uriToCompletionItemForProject(uri, project);
                             project.completionItemsMap.putItem(item);
                             workspace.fileToProjectCache.set(uri.path, project);
@@ -145,7 +145,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
     private _discoverTypeScriptProjects = (workspaceFolder: vscode.WorkspaceFolder): Promise<TypeScriptProject[]> => {
         const tsconfigPattern = new vscode.RelativePattern(workspaceFolder, "**/tsconfig.json");
         
-        return vscode.workspace.findFiles(tsconfigPattern).then(tsconfigUris => {
+        return Promise.resolve(vscode.workspace.findFiles(tsconfigPattern)).then(tsconfigUris => {
             return Promise.all(
                 tsconfigUris.map(tsconfigUri => {
                     return vscode.workspace.openTextDocument(tsconfigUri).then(
