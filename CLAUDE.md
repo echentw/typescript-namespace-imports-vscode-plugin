@@ -11,6 +11,7 @@ This is a VS Code extension that provides TypeScript namespace import autocomple
 - **Build for development**: `npm run build` - Compiles with sourcemaps using esbuild
 - **Watch mode**: `npm run watch` - Rebuilds automatically on file changes
 - **Build for production**: `npm run vscode:prepublish` - Minified build for publishing
+- **TypeScript build**: `npm run tsc-build` - TypeScript compiler build with strict type checking
 - **Lint**: `npm run lint` - ESLint with TypeScript extensions
 - **Format**: `npm run format` - Prettier formatting for all TypeScript files
 - **TypeScript watch**: `npm run tsc-watch` - TypeScript compiler in watch mode
