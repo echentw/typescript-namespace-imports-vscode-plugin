@@ -1,7 +1,6 @@
 "use strict";
 import * as vscode from "vscode";
 import { CompletionItemsCache } from "./completion_items_cache";
-import { CompletionItemsCacheImpl } from "./completion_items_cache_impl";
 
 const openGraphQLTag = /gql`[^`]*$/;
 
@@ -17,9 +16,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
     }
 
-    const moduleCompletionItemsCache: CompletionItemsCache = new CompletionItemsCacheImpl(
-        workspaceFolders
-    );
+    const moduleCompletionItemsCache = CompletionItemsCache.make(workspaceFolders);
 
     // Whenever there is a change to the workspace folders refresh the cache
     const workspaceWatcher = vscode.workspace.onDidChangeWorkspaceFolders(

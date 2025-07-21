@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as Path from "path";
 import * as _ from "lodash";
+import { CompletionItemMap } from "./completion_item_map";
 
 export function uriToImportPath(
     uri: vscode.Uri,
@@ -143,11 +144,7 @@ export interface TypeScriptProject {
     workspaceFolder: vscode.WorkspaceFolder;
     baseUrl?: string;
     paths?: Record<string, string[]>;
-    completionItemsMap?: {
-        putItem: (item: vscode.CompletionItem) => void;
-        removeItem: (item: vscode.CompletionItem) => void;
-        getItemsAt: (prefix: string) => vscode.CompletionItem[];
-    };
+    completionItemsMap?: CompletionItemMap;
 }
 
 export function findProjectForFile(
