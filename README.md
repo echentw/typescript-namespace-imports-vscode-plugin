@@ -10,11 +10,11 @@ import * as ModuleName from "path/to/module_name"
 
 ## Features
 
-This plugin offers the capital-cased version of every typescript file in your workspace as a module inside of autocomplete.
+This plugin offers the camelCase version of every typescript file in your workspace as a module inside of autocomplete.
 
 For example if the file file_to_import exists in your
 workspace it will offer to import it as a module called
-FileToImport.
+fileToImport.
 Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
 
 ![demo](images/import_demo.gif)
