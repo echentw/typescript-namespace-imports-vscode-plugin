@@ -5,18 +5,18 @@ import * as Path from "path";
 import * as ts from "typescript";
 import { CompletionItemMap } from "./completion_item_map";
 
-interface Workspace {
+type Workspace = {
     workspaceFolder: vscode.WorkspaceFolder;
     projects: TypeScriptProject[];
     fileToProjectCache: Map<string, TypeScriptProject>;
-}
+};
 
-export interface CompletionItemsCache {
+export type CompletionItemsCache = {
     handleWorkspaceChange: (event: vscode.WorkspaceFoldersChangeEvent) => void;
     addFile: (uri: vscode.Uri) => void;
     deleteFile: (uri: vscode.Uri) => void;
     getCompletionList: (currentUri: vscode.Uri, query: string) => vscode.CompletionList | [];
-}
+};
 
 export const CompletionItemsCache = {
     make: (workspaceFolders: readonly vscode.WorkspaceFolder[]): CompletionItemsCache => {
@@ -35,7 +35,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
     // Map from workspaceFolder.name -> cached workspace data
     private _cache: Record<string, Workspace> = {};
 
-    constructor(workspaceFolders: readonly vscode.WorkspaceFolder[]) {
+    constructor(workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>) {
         workspaceFolders.forEach(this.addWorkspace);
     }
 
@@ -72,7 +72,8 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         const workspace = this._cache[workspaceFolder.name];
         if (workspace === undefined) return;
 
-        const project = workspace.fileToProjectCache.get(uri.path) ?? findProjectForFile(uri, workspace);
+        const project =
+            workspace.fileToProjectCache.get(uri.path) ?? findProjectForFile(uri, workspace);
         if (project === null || project.completionItemsMap === undefined) return;
 
         const item = uriHelpers.uriToCompletionItemForProject(uri, project);
@@ -90,7 +91,9 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             return [];
         }
 
-        const currentProject = workspace.fileToProjectCache.get(currentUri.path) ?? findProjectForFile(currentUri, workspace);
+        const currentProject =
+            workspace.fileToProjectCache.get(currentUri.path) ??
+            findProjectForFile(currentUri, workspace);
         if (currentProject === null || currentProject.completionItemsMap === undefined) {
             console.warn(`No TypeScript project found for current file: ${currentUri.path}`);
             return [];
@@ -104,87 +107,85 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         delete this._cache[workspaceFolder.name];
     };
 
-    private addWorkspace = (workspaceFolder: vscode.WorkspaceFolder): void => {
-        discoverTypeScriptProjects(workspaceFolder)
-            .then(projects => {
-                const typescriptPattern = new vscode.RelativePattern(
-                    workspaceFolder,
-                    "**/*.{ts,tsx}"
-                );
+    private addWorkspace = async (workspaceFolder: vscode.WorkspaceFolder): Promise<void> => {
+        let projects: Array<Omit<TypeScriptProject, 'completionItemsMap'>>;
+        try {
+            projects = await discoverTypeScriptProjectsAsync(workspaceFolder);
+        } catch (error) {
+            console.error(`Error discovering TypeScript projects: ${error}`);
+            return;
+        }
 
-                vscode.workspace.findFiles(typescriptPattern).then(
-                    uris => {
-                        // Initialize completion item maps for each project
-                        projects.forEach(project => {
-                            project.completionItemsMap = CompletionItemMap.make([], getItemPrefix);
-                        });
+        const typescriptPattern = new vscode.RelativePattern(workspaceFolder, "**/*.{ts,tsx}");
 
-                        const workspace: Workspace = {
-                            workspaceFolder,
-                            projects,
-                            fileToProjectCache: new Map<string, TypeScriptProject>(),
-                        };
+        let uris: Array<vscode.Uri> = [];
+        try {
+            uris = await vscode.workspace.findFiles(typescriptPattern);
+        } catch (error) {
+            console.error(`Error creating cache: ${error}`);
+            return;
+        }
 
-                        // Assign each file to its appropriate project
-                        for (const uri of uris) {
-                            const project = findProjectForFile(uri, workspace);
-                            if (project && project.completionItemsMap) {
-                                const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-                                project.completionItemsMap.putItem(item);
-                                workspace.fileToProjectCache.set(uri.path, project);
-                            }
-                        }
+        const workspace: Workspace = {
+            workspaceFolder,
+            projects: projects.map(p => ({
+                ...p,
+                completionItemsMap: CompletionItemMap.make([], getItemPrefix),
+            })),
+            fileToProjectCache: new Map(),
+        };
 
-                        this._cache[workspaceFolder.name] = workspace;
-                    },
-                    error => {
-                        console.error(`Error creating cache: ${error}`);
-                    }
-                );
-            })
-            .catch(error => {
-                console.error(`Error discovering TypeScript projects: ${error}`);
-            });
+        // Assign each file to its appropriate project
+        for (const uri of uris) {
+            const project = findProjectForFile(uri, workspace);
+            if (project === null || project.completionItemsMap === undefined) continue;
+
+            const item = uriHelpers.uriToCompletionItemForProject(uri, project);
+            project.completionItemsMap.putItem(item);
+            workspace.fileToProjectCache.set(uri.path, project);
+        }
+
+        this._cache[workspaceFolder.name] = workspace;
     };
 }
 
-function discoverTypeScriptProjects(
+async function discoverTypeScriptProjectsAsync(
     workspaceFolder: vscode.WorkspaceFolder
-): Promise<TypeScriptProject[]> {
+): Promise<Array<Omit<TypeScriptProject, 'completionItemsMap'>>> {
     const tsconfigPattern = new vscode.RelativePattern(workspaceFolder, "**/tsconfig.json");
 
-    return Promise.resolve(vscode.workspace.findFiles(tsconfigPattern)).then(tsconfigUris => {
-        return Promise.all(
-            tsconfigUris.map(tsconfigUri => {
-                return vscode.workspace.openTextDocument(tsconfigUri).then(
-                    tsconfigDoc => {
-                        const pathMapping = tsconfigDocumentToPathMapping(tsconfigDoc);
+    const tsconfigUris = await vscode.workspace.findFiles(tsconfigPattern);
 
-                        const project: TypeScriptProject = {
-                            tsconfigPath: tsconfigUri.path,
-                            rootPath: Path.dirname(tsconfigUri.path),
-                            workspaceFolder,
-                            baseUrl: pathMapping.baseUrl,
-                            paths: pathMapping.paths,
-                        };
+    const projects = await Promise.all(
+        tsconfigUris.map(async tsconfigUri => {
+            let tsconfigDoc: vscode.TextDocument;
+            try {
+                tsconfigDoc = await vscode.workspace.openTextDocument(tsconfigUri);
+            } catch (error) {
+                console.error(`Error reading tsconfig at ${tsconfigUri.path}: ${error}`);
+                return null;
+            }
 
-                        return project;
-                    },
-                    error => {
-                        console.error(`Error reading tsconfig at ${tsconfigUri.path}: ${error}`);
-                        return null;
-                    }
-                );
-            })
-        ).then(projects => {
-            const validProjects = projects.filter(p => p !== null) as TypeScriptProject[];
+            const pathMapping = tsconfigDocumentToPathMapping(tsconfigDoc);
 
-            // Sort by depth (deepest first) for proper nesting hierarchy
-            return validProjects.sort(
-                (a, b) => b.rootPath.split("/").length - a.rootPath.split("/").length
-            );
-        });
-    });
+            const project: Omit<TypeScriptProject, 'completionItemsMap'> = {
+                tsconfigPath: tsconfigUri.path,
+                rootPath: Path.dirname(tsconfigUri.path),
+                workspaceFolder,
+                baseUrl: pathMapping.baseUrl,
+                paths: pathMapping.paths,
+            };
+
+            return project;
+        })
+    );
+
+    const validProjects = projects.filter(p => p !== null) as TypeScriptProject[];
+
+    // Sort by depth (deepest first) for proper nesting hierarchy
+    return validProjects.sort(
+        (a, b) => b.rootPath.split("/").length - a.rootPath.split("/").length
+    );
 }
 
 function findProjectForFile(uri: vscode.Uri, workspace: Workspace): TypeScriptProject | null {
@@ -192,11 +193,7 @@ function findProjectForFile(uri: vscode.Uri, workspace: Workspace): TypeScriptPr
 }
 
 function getItemPrefix(item: vscode.CompletionItem): string {
-    if (typeof item.label === "string") {
-        return getPrefix(item.label);
-    }
-
-    return getPrefix(item.label.label);
+    return typeof item.label === "string" ? getPrefix(item.label) : getPrefix(item.label.label);
 }
 
 function getPrefix(query: string): string {
@@ -213,11 +210,11 @@ function tsconfigDocumentToPathMapping(tsconfigDoc: vscode.TextDocument): PathMa
         const compilerOptions = tsconfigObj["compilerOptions"];
 
         if ("baseUrl" in compilerOptions) {
-            pathMapping.baseUrl = <string>compilerOptions["baseUrl"];
+            pathMapping.baseUrl = compilerOptions["baseUrl"] as string;
         }
 
         if ("paths" in compilerOptions) {
-            pathMapping.paths = <Record<string, string[]>>compilerOptions["paths"];
+            pathMapping.paths = compilerOptions["paths"] as Record<string, Array<string>>;
         }
     }
 

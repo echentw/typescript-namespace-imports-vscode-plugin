@@ -14,7 +14,7 @@ export type TypeScriptProject = {
     workspaceFolder: vscode.WorkspaceFolder;
     baseUrl?: string;
     paths?: Record<string, Array<string>>;
-    completionItemsMap?: CompletionItemMap;
+    completionItemsMap: CompletionItemMap;
 }
 
 export function findProjectForFile(
@@ -24,14 +24,9 @@ export function findProjectForFile(
     const filePath = uri.path;
     
     // Find all projects that could contain this file
-    const candidateProjects = projects.filter(project => 
-        filePath.startsWith(project.rootPath)
-    );
-    
-    if (candidateProjects.length === 0) {
-        return null;
-    }
-    
+    const candidateProjects = projects.filter(project => filePath.startsWith(project.rootPath));
+    if (candidateProjects.length === 0) return null;
+
     // Return the project with the deepest (most specific) root path
     return candidateProjects.reduce((deepest, current) => 
         current.rootPath.length > deepest.rootPath.length ? current : deepest
@@ -44,11 +39,14 @@ export function uriToCompletionItemForProject(
 ): vscode.CompletionItem {
     const moduleName = uriToModuleName(uri);
     const importPath = uriToImportPathForProject(uri, project);
+
     const completionItem = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);
     completionItem.detail = importPath;
-    const importEdit = `import * as ${moduleName} from "${importPath}";\n`;
     completionItem.additionalTextEdits = [
-        vscode.TextEdit.insert(new vscode.Position(0, 0), importEdit),
+        vscode.TextEdit.insert(
+            new vscode.Position(0, 0),
+            `import * as ${moduleName} from "${importPath}";\n`,
+        ),
     ];
     return completionItem;
 }
