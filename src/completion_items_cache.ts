@@ -33,7 +33,7 @@ export const CompletionItemsCache = {
  */
 export class CompletionItemsCacheImpl implements CompletionItemsCache {
     // Map from workspaceFolder.name -> cached workspace data
-    private _cache: Record<string, Workspace> = {};
+    private workspaceInfoByName: Record<string, Workspace> = {};
 
     constructor(workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>) {
         workspaceFolders.forEach(this.addWorkspace);
@@ -48,7 +48,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         const workspaceFolder = getWorkspaceFolderFromUri(uri);
         if (workspaceFolder === null) return;
 
-        const workspace = this._cache[workspaceFolder.name];
+        const workspace = this.workspaceInfoByName[workspaceFolder.name];
         if (workspace === undefined) {
             console.error("Cannot add item: Workspace has not been cached");
             return;
@@ -69,7 +69,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         const workspaceFolder = getWorkspaceFolderFromUri(uri);
         if (workspaceFolder === null) return;
 
-        const workspace = this._cache[workspaceFolder.name];
+        const workspace = this.workspaceInfoByName[workspaceFolder.name];
         if (workspace === undefined) return;
 
         const project =
@@ -85,15 +85,13 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         const workspaceFolder = getWorkspaceFolderFromUri(currentUri);
         if (workspaceFolder === null) return [];
 
-        const workspace = this._cache[workspaceFolder.name];
+        const workspace = this.workspaceInfoByName[workspaceFolder.name];
         if (workspace === undefined) {
             console.warn("Workspace was not in cache");
             return [];
         }
 
-        const currentProject =
-            workspace.fileToProjectCache.get(currentUri.path) ??
-            findProjectForFile(currentUri, workspace);
+        const currentProject = workspace.fileToProjectCache.get(currentUri.path) ?? findProjectForFile(currentUri, workspace);
         if (currentProject === null || currentProject.completionItemsMap === undefined) {
             console.warn(`No TypeScript project found for current file: ${currentUri.path}`);
             return [];
@@ -104,11 +102,11 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
     };
 
     private removeWorkspace = (workspaceFolder: vscode.WorkspaceFolder): void => {
-        delete this._cache[workspaceFolder.name];
+        delete this.workspaceInfoByName[workspaceFolder.name];
     };
 
     private addWorkspace = async (workspaceFolder: vscode.WorkspaceFolder): Promise<void> => {
-        let projects: Array<Omit<TypeScriptProject, 'completionItemsMap'>>;
+        let projects: Array<Omit<TypeScriptProject, "completionItemsMap">>;
         try {
             projects = await discoverTypeScriptProjectsAsync(workspaceFolder);
         } catch (error) {
@@ -145,13 +143,13 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             workspace.fileToProjectCache.set(uri.path, project);
         }
 
-        this._cache[workspaceFolder.name] = workspace;
+        this.workspaceInfoByName[workspaceFolder.name] = workspace;
     };
 }
 
 async function discoverTypeScriptProjectsAsync(
     workspaceFolder: vscode.WorkspaceFolder
-): Promise<Array<Omit<TypeScriptProject, 'completionItemsMap'>>> {
+): Promise<Array<Omit<TypeScriptProject, "completionItemsMap">>> {
     const tsconfigPattern = new vscode.RelativePattern(workspaceFolder, "**/tsconfig.json");
 
     const tsconfigUris = await vscode.workspace.findFiles(tsconfigPattern);
@@ -168,7 +166,7 @@ async function discoverTypeScriptProjectsAsync(
 
             const pathMapping = tsconfigDocumentToPathMapping(tsconfigDoc);
 
-            const project: Omit<TypeScriptProject, 'completionItemsMap'> = {
+            const project: Omit<TypeScriptProject, "completionItemsMap"> = {
                 tsconfigPath: tsconfigUri.path,
                 rootPath: Path.dirname(tsconfigUri.path),
                 workspaceFolder,
