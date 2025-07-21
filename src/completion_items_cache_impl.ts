@@ -1,15 +1,14 @@
 import * as vscode from "vscode";
-import { PathMapping, uriToCompletionItem } from "./uri_helpers";
+import { PathMapping, TypeScriptProject, findProjectForFile, uriToCompletionItemForProject } from "./uri_helpers";
 import * as Path from "path";
 import * as ts from "typescript";
 import { CompletionItemsCache } from "./completion_items_cache";
-import { CompletionItemMap } from "./completion_item_map";
 import { CompletionItemMapImpl } from "./completion_item_map_impl";
 
 interface Workspace {
-    baseUrlMap: Record<string, string>;
-    pathMappings: Record<string, PathMapping>;
-    completionItemsMap: CompletionItemMap;
+    workspaceFolder: vscode.WorkspaceFolder;
+    projects: TypeScriptProject[];
+    fileToProjectCache: Map<string, TypeScriptProject>;
 }
 
 /**
@@ -38,8 +37,14 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             const workspace = this._cache[workspaceFolder.name];
 
             if (workspace) {
-                const item = uriToCompletionItem(uri, workspace.baseUrlMap, workspace.pathMappings);
-                workspace.completionItemsMap.putItem(item);
+                const project = this._findProjectForFile(uri, workspace);
+                if (project) {
+                    const item = uriToCompletionItemForProject(uri, project);
+                    project.completionItemsMap.putItem(item);
+                    workspace.fileToProjectCache.set(uri.path, project);
+                } else {
+                    console.warn(`No TypeScript project found for file: ${uri.path}`);
+                }
             } else {
                 console.error("Cannot add item: Workspace has not been cached");
             }
@@ -54,8 +59,14 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             const workspace = this._cache[workspaceFolder.name];
 
             if (workspace) {
-                const item = uriToCompletionItem(uri, workspace.baseUrlMap, workspace.pathMappings);
-                workspace.completionItemsMap.removeItem(item);
+                const project = workspace.fileToProjectCache.get(uri.path) || 
+                                this._findProjectForFile(uri, workspace);
+                
+                if (project) {
+                    const item = uriToCompletionItemForProject(uri, project);
+                    project.completionItemsMap.removeItem(item);
+                    workspace.fileToProjectCache.delete(uri.path);
+                }
             }
         }
 
@@ -76,7 +87,15 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             return [];
         }
 
-        const items = workspace.completionItemsMap.getItemsAt(this._getPrefix(query));
+        const currentProject = workspace.fileToProjectCache.get(currentUri.path) ||
+                              this._findProjectForFile(currentUri, workspace);
+
+        if (!currentProject) {
+            console.warn(`No TypeScript project found for current file: ${currentUri.path}`);
+            return [];
+        }
+
+        const items = currentProject.completionItemsMap.getItemsAt(this._getPrefix(query));
 
         return new vscode.CompletionList(items, false);
     };
@@ -86,41 +105,80 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
     };
 
     private _addWorkspace = (workspaceFolder: vscode.WorkspaceFolder): void => {
-        const typescriptPattern = new vscode.RelativePattern(workspaceFolder, "**/*.{ts,tsx}");
-        this._getWorkspacePathMappings(workspaceFolder).then(({ baseUrlMap, pathMappings }) => {
+        this._discoverTypeScriptProjects(workspaceFolder).then(projects => {
+            const typescriptPattern = new vscode.RelativePattern(workspaceFolder, "**/*.{ts,tsx}");
+            
             vscode.workspace.findFiles(typescriptPattern).then(
                 uris => {
-                    const completionItems: vscode.CompletionItem[] = [];
-                    for (const uri of uris) {
-                        completionItems.push(uriToCompletionItem(uri, baseUrlMap, pathMappings));
-                    }
-                    this._cache[workspaceFolder.name] = {
-                        baseUrlMap,
-                        pathMappings,
-                        completionItemsMap: new CompletionItemMapImpl(
-                            completionItems,
-                            this._getItemPrefix
-                        ),
+                    // Initialize completion item maps for each project
+                    projects.forEach(project => {
+                        project.completionItemsMap = new CompletionItemMapImpl([], this._getItemPrefix);
+                    });
+
+                    const workspace: Workspace = {
+                        workspaceFolder,
+                        projects,
+                        fileToProjectCache: new Map<string, TypeScriptProject>()
                     };
+
+                    // Assign each file to its appropriate project
+                    for (const uri of uris) {
+                        const project = this._findProjectForFile(uri, workspace);
+                        if (project) {
+                            const item = uriToCompletionItemForProject(uri, project);
+                            project.completionItemsMap.putItem(item);
+                            workspace.fileToProjectCache.set(uri.path, project);
+                        }
+                    }
+
+                    this._cache[workspaceFolder.name] = workspace;
                 },
                 error => {
                     console.error(`Error creating cache: ${error}`);
                 }
             );
+        }).catch(error => {
+            console.error(`Error discovering TypeScript projects: ${error}`);
         });
     };
 
-    private _getWorkspacePathMappings = (
-        workspace: vscode.WorkspaceFolder
-    ): Thenable<{ baseUrlMap: Record<string, string>; pathMappings: Record<string, PathMapping> }> => {
-        const tsconfigPattern = new vscode.RelativePattern(workspace, "**/tsconfig.json");
-
-        return vscode.workspace
-            .findFiles(tsconfigPattern)
-            .then(this._tsconfigUrisToPathMappings(workspace), error => {
-                console.error(`Error while working with **/tsconfig.json files ${error}`);
-                return { baseUrlMap: {}, pathMappings: {} };
+    private _discoverTypeScriptProjects = (workspaceFolder: vscode.WorkspaceFolder): Promise<TypeScriptProject[]> => {
+        const tsconfigPattern = new vscode.RelativePattern(workspaceFolder, "**/tsconfig.json");
+        
+        return vscode.workspace.findFiles(tsconfigPattern).then(tsconfigUris => {
+            return Promise.all(
+                tsconfigUris.map(tsconfigUri => {
+                    return vscode.workspace.openTextDocument(tsconfigUri).then(
+                        tsconfigDoc => {
+                            const pathMapping = this._tsconfigDocumentToPathMapping(tsconfigDoc);
+                            
+                            const project: TypeScriptProject = {
+                                tsconfigPath: tsconfigUri.path,
+                                rootPath: Path.dirname(tsconfigUri.path),
+                                workspaceFolder,
+                                baseUrl: pathMapping.baseUrl,
+                                paths: pathMapping.paths
+                            };
+                            
+                            return project;
+                        },
+                        error => {
+                            console.error(`Error reading tsconfig at ${tsconfigUri.path}: ${error}`);
+                            return null;
+                        }
+                    );
+                })
+            ).then(projects => {
+                const validProjects = projects.filter(p => p !== null) as TypeScriptProject[];
+                
+                // Sort by depth (deepest first) for proper nesting hierarchy
+                return validProjects.sort((a, b) => b.rootPath.split('/').length - a.rootPath.split('/').length);
             });
+        });
+    };
+
+    private _findProjectForFile = (uri: vscode.Uri, workspace: Workspace): TypeScriptProject | undefined => {
+        return findProjectForFile(uri, workspace.projects);
     };
 
     private _getItemPrefix = (item: vscode.CompletionItem): string => {
@@ -132,50 +190,6 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
     };
 
     private _getPrefix = (query: string): string => query.substring(0, 1);
-
-    private _tsconfigUrisToPathMappings =
-        (workspaceFolder: vscode.WorkspaceFolder) =>
-        (uris: vscode.Uri[]): Thenable<{ baseUrlMap: Record<string, string>; pathMappings: Record<string, PathMapping> }> => {
-            const recordPromises = Promise.all(
-                uris.map(tsconfigUri =>
-                    vscode.workspace.openTextDocument(tsconfigUri).then(
-                        tsconfigDoc => {
-                            const pathMapping = this._tsconfigDocumentToPathMapping(tsconfigDoc);
-                            const relativePath = Path.relative(
-                                workspaceFolder.uri.path,
-                                Path.dirname(tsconfigUri.path)
-                            );
-                            
-                            return pathMapping.baseUrl || pathMapping.paths
-                                ? {
-                                      baseUrlEntry: pathMapping.baseUrl ? { [relativePath]: pathMapping.baseUrl } : null,
-                                      pathMappingEntry: { [relativePath]: pathMapping },
-                                  }
-                                : null;
-                        },
-                        error => {
-                            console.error(`Error working with ${tsconfigUri.path}: ${error}`);
-                        }
-                    )
-                )
-            );
-
-            return recordPromises.then(records => {
-                const baseUrlMap: Record<string, string> = {};
-                const pathMappings: Record<string, PathMapping> = {};
-                
-                records.forEach(r => {
-                    if (r) {
-                        if (r.baseUrlEntry) {
-                            Object.assign(baseUrlMap, r.baseUrlEntry);
-                        }
-                        Object.assign(pathMappings, r.pathMappingEntry);
-                    }
-                });
-                
-                return { baseUrlMap, pathMappings };
-            });
-        };
 
     private _tsconfigDocumentToPathMapping = (tsconfigDoc: vscode.TextDocument): PathMapping => {
         const parseResults = ts.parseConfigFileTextToJson(
