@@ -46,70 +46,57 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
 
     addFile = (uri: vscode.Uri) => {
         const workspaceFolder = getWorkspaceFolderFromUri(uri);
-        if (workspaceFolder) {
-            const workspace = this._cache[workspaceFolder.name];
+        if (workspaceFolder === null) return;
 
-            if (workspace) {
-                const project = findProjectForFile(uri, workspace);
-                if (project && project.completionItemsMap) {
-                    const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-                    project.completionItemsMap.putItem(item);
-                    workspace.fileToProjectCache.set(uri.path, project);
-                } else {
-                    console.warn(`No TypeScript project found for file: ${uri.path}`);
-                }
-            } else {
-                console.error("Cannot add item: Workspace has not been cached");
-            }
+        const workspace = this._cache[workspaceFolder.name];
+        if (workspace === undefined) {
+            console.error("Cannot add item: Workspace has not been cached");
+            return;
         }
 
-        return;
+        const project = findProjectForFile(uri, workspace);
+        if (project === null || project.completionItemsMap === undefined) {
+            console.warn(`No TypeScript project found for file: ${uri.path}`);
+            return;
+        }
+
+        const item = uriHelpers.uriToCompletionItemForProject(uri, project);
+        project.completionItemsMap.putItem(item);
+        workspace.fileToProjectCache.set(uri.path, project);
     };
 
     deleteFile = (uri: vscode.Uri) => {
         const workspaceFolder = getWorkspaceFolderFromUri(uri);
-        if (workspaceFolder) {
-            const workspace = this._cache[workspaceFolder.name];
+        if (workspaceFolder === null) return;
 
-            if (workspace) {
-                const project = workspace.fileToProjectCache.get(uri.path) || 
-                                findProjectForFile(uri, workspace);
-                
-                if (project && project.completionItemsMap) {
-                    const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-                    project.completionItemsMap.removeItem(item);
-                    workspace.fileToProjectCache.delete(uri.path);
-                }
-            }
-        }
+        const workspace = this._cache[workspaceFolder.name];
+        if (workspace === undefined) return;
 
-        return;
+        const project = workspace.fileToProjectCache.get(uri.path) ?? findProjectForFile(uri, workspace);
+        if (project === null || project.completionItemsMap === undefined) return;
+
+        const item = uriHelpers.uriToCompletionItemForProject(uri, project);
+        project.completionItemsMap.removeItem(item);
+        workspace.fileToProjectCache.delete(uri.path);
     };
 
     getCompletionList = (currentUri: vscode.Uri, query: string): vscode.CompletionList | [] => {
         const workspaceFolder = getWorkspaceFolderFromUri(currentUri);
-
-        if (!workspaceFolder) {
-            return [];
-        }
+        if (workspaceFolder === null) return [];
 
         const workspace = this._cache[workspaceFolder.name];
-
-        if (!workspace) {
+        if (workspace === undefined) {
             console.warn("Workspace was not in cache");
             return [];
         }
 
-        const currentProject = workspace.fileToProjectCache.get(currentUri.path) ||
-                              findProjectForFile(currentUri, workspace);
-
-        if (!currentProject || !currentProject.completionItemsMap) {
+        const currentProject = workspace.fileToProjectCache.get(currentUri.path) ?? findProjectForFile(currentUri, workspace);
+        if (currentProject === null || currentProject.completionItemsMap === undefined) {
             console.warn(`No TypeScript project found for current file: ${currentUri.path}`);
             return [];
         }
 
         const items = currentProject.completionItemsMap.getItemsAt(getPrefix(query));
-
         return new vscode.CompletionList(items, false);
     };
 
@@ -118,45 +105,52 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
     };
 
     private addWorkspace = (workspaceFolder: vscode.WorkspaceFolder): void => {
-        discoverTypeScriptProjects(workspaceFolder).then(projects => {
-            const typescriptPattern = new vscode.RelativePattern(workspaceFolder, "**/*.{ts,tsx}");
-            
-            vscode.workspace.findFiles(typescriptPattern).then(
-                uris => {
-                    // Initialize completion item maps for each project
-                    projects.forEach(project => {
-                        project.completionItemsMap = CompletionItemMap.make([], getItemPrefix);
-                    });
+        discoverTypeScriptProjects(workspaceFolder)
+            .then(projects => {
+                const typescriptPattern = new vscode.RelativePattern(
+                    workspaceFolder,
+                    "**/*.{ts,tsx}"
+                );
 
-                    const workspace: Workspace = {
-                        workspaceFolder,
-                        projects,
-                        fileToProjectCache: new Map<string, TypeScriptProject>()
-                    };
+                vscode.workspace.findFiles(typescriptPattern).then(
+                    uris => {
+                        // Initialize completion item maps for each project
+                        projects.forEach(project => {
+                            project.completionItemsMap = CompletionItemMap.make([], getItemPrefix);
+                        });
 
-                    // Assign each file to its appropriate project
-                    for (const uri of uris) {
-                        const project = findProjectForFile(uri, workspace);
-                        if (project && project.completionItemsMap) {
-                            const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-                            project.completionItemsMap.putItem(item);
-                            workspace.fileToProjectCache.set(uri.path, project);
+                        const workspace: Workspace = {
+                            workspaceFolder,
+                            projects,
+                            fileToProjectCache: new Map<string, TypeScriptProject>(),
+                        };
+
+                        // Assign each file to its appropriate project
+                        for (const uri of uris) {
+                            const project = findProjectForFile(uri, workspace);
+                            if (project && project.completionItemsMap) {
+                                const item = uriHelpers.uriToCompletionItemForProject(uri, project);
+                                project.completionItemsMap.putItem(item);
+                                workspace.fileToProjectCache.set(uri.path, project);
+                            }
                         }
-                    }
 
-                    this._cache[workspaceFolder.name] = workspace;
-                },
-                error => {
-                    console.error(`Error creating cache: ${error}`);
-                }
-            );
-        }).catch(error => {
-            console.error(`Error discovering TypeScript projects: ${error}`);
-        });
+                        this._cache[workspaceFolder.name] = workspace;
+                    },
+                    error => {
+                        console.error(`Error creating cache: ${error}`);
+                    }
+                );
+            })
+            .catch(error => {
+                console.error(`Error discovering TypeScript projects: ${error}`);
+            });
     };
 }
 
-function discoverTypeScriptProjects(workspaceFolder: vscode.WorkspaceFolder): Promise<TypeScriptProject[]> {
+function discoverTypeScriptProjects(
+    workspaceFolder: vscode.WorkspaceFolder
+): Promise<TypeScriptProject[]> {
     const tsconfigPattern = new vscode.RelativePattern(workspaceFolder, "**/tsconfig.json");
 
     return Promise.resolve(vscode.workspace.findFiles(tsconfigPattern)).then(tsconfigUris => {
@@ -171,7 +165,7 @@ function discoverTypeScriptProjects(workspaceFolder: vscode.WorkspaceFolder): Pr
                             rootPath: Path.dirname(tsconfigUri.path),
                             workspaceFolder,
                             baseUrl: pathMapping.baseUrl,
-                            paths: pathMapping.paths
+                            paths: pathMapping.paths,
                         };
 
                         return project;
@@ -186,12 +180,14 @@ function discoverTypeScriptProjects(workspaceFolder: vscode.WorkspaceFolder): Pr
             const validProjects = projects.filter(p => p !== null) as TypeScriptProject[];
 
             // Sort by depth (deepest first) for proper nesting hierarchy
-            return validProjects.sort((a, b) => b.rootPath.split('/').length - a.rootPath.split('/').length);
+            return validProjects.sort(
+                (a, b) => b.rootPath.split("/").length - a.rootPath.split("/").length
+            );
         });
     });
 }
 
-function findProjectForFile(uri: vscode.Uri, workspace: Workspace): TypeScriptProject | undefined {
+function findProjectForFile(uri: vscode.Uri, workspace: Workspace): TypeScriptProject | null {
     return uriHelpers.findProjectForFile(uri, workspace.projects);
 }
 
@@ -204,6 +200,7 @@ function getItemPrefix(item: vscode.CompletionItem): string {
 }
 
 function getPrefix(query: string): string {
+    // TODO: is this always getting the first char? why?
     return query.substring(0, 1);
 }
 
@@ -227,12 +224,10 @@ function tsconfigDocumentToPathMapping(tsconfigDoc: vscode.TextDocument): PathMa
     return pathMapping;
 }
 
-function getWorkspaceFolderFromUri(uri: vscode.Uri): vscode.WorkspaceFolder | undefined {
-    const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
-
-    if (workspaceFolder === undefined) {
+function getWorkspaceFolderFromUri(uri: vscode.Uri): vscode.WorkspaceFolder | null {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri) ?? null;
+    if (workspaceFolder === null) {
         console.error("URI in undefined workspaceFolder", uri);
     }
-
     return workspaceFolder;
 }
