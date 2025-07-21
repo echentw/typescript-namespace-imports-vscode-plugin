@@ -55,7 +55,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         }
 
         const project = findProjectForFile(uri, workspace);
-        if (project === null || project.completionItemsMap === undefined) {
+        if (project === null) {
             console.warn(`No TypeScript project found for file: ${uri.path}`);
             return;
         }
@@ -72,9 +72,8 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         const workspace = this.workspaceInfoByName[workspaceFolder.name];
         if (workspace === undefined) return;
 
-        const project =
-            workspace.fileToProjectCache.get(uri.path) ?? findProjectForFile(uri, workspace);
-        if (project === null || project.completionItemsMap === undefined) return;
+        const project = workspace.fileToProjectCache.get(uri.path) ?? findProjectForFile(uri, workspace);
+        if (project === null) return;
 
         const item = uriHelpers.uriToCompletionItemForProject(uri, project);
         project.completionItemsMap.removeItem(item);
@@ -92,7 +91,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         }
 
         const currentProject = workspace.fileToProjectCache.get(currentUri.path) ?? findProjectForFile(currentUri, workspace);
-        if (currentProject === null || currentProject.completionItemsMap === undefined) {
+        if (currentProject === null) {
             console.warn(`No TypeScript project found for current file: ${currentUri.path}`);
             return [];
         }
@@ -136,7 +135,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         // Assign each file to its appropriate project
         for (const uri of uris) {
             const project = findProjectForFile(uri, workspace);
-            if (project === null || project.completionItemsMap === undefined) continue;
+            if (project === null) continue;
 
             const item = uriHelpers.uriToCompletionItemForProject(uri, project);
             project.completionItemsMap.putItem(item);
@@ -191,7 +190,9 @@ function findProjectForFile(uri: vscode.Uri, workspace: Workspace): TypeScriptPr
 }
 
 function getItemPrefix(item: vscode.CompletionItem): string {
-    return typeof item.label === "string" ? getPrefix(item.label) : getPrefix(item.label.label);
+    return typeof item.label === "string"
+        ? getPrefix(item.label)
+        : getPrefix(item.label.label);
 }
 
 function getPrefix(query: string): string {
