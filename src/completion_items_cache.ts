@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as uriHelpers from "./uri_helpers";
-import { PathMapping, TypeScriptProject, uriToCompletionItemForProject } from "./uri_helpers";
+import { PathMapping, TypeScriptProject } from "./uri_helpers";
 import * as Path from "path";
 import * as ts from "typescript";
 import { CompletionItemMap } from "./completion_item_map";
@@ -52,7 +52,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             if (workspace) {
                 const project = findProjectForFile(uri, workspace);
                 if (project && project.completionItemsMap) {
-                    const item = uriToCompletionItemForProject(uri, project);
+                    const item = uriHelpers.uriToCompletionItemForProject(uri, project);
                     project.completionItemsMap.putItem(item);
                     workspace.fileToProjectCache.set(uri.path, project);
                 } else {
@@ -76,7 +76,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
                                 findProjectForFile(uri, workspace);
                 
                 if (project && project.completionItemsMap) {
-                    const item = uriToCompletionItemForProject(uri, project);
+                    const item = uriHelpers.uriToCompletionItemForProject(uri, project);
                     project.completionItemsMap.removeItem(item);
                     workspace.fileToProjectCache.delete(uri.path);
                 }
@@ -138,7 +138,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
                     for (const uri of uris) {
                         const project = findProjectForFile(uri, workspace);
                         if (project && project.completionItemsMap) {
-                            const item = uriToCompletionItemForProject(uri, project);
+                            const item = uriHelpers.uriToCompletionItemForProject(uri, project);
                             project.completionItemsMap.putItem(item);
                             workspace.fileToProjectCache.set(uri.path, project);
                         }
