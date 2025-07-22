@@ -1,7 +1,6 @@
 "use strict";
 import * as vscode from "vscode";
 import { CompletionItemsCache } from "./completion_items_cache";
-import { CompletionItemsCacheImpl } from "./completion_items_cache_impl";
 
 const openGraphQLTag = /gql`[^`]*$/;
 
@@ -9,17 +8,12 @@ const openGraphQLTag = /gql`[^`]*$/;
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
-
-    if (!workspaceFolders) {
-        console.warn(
-            "No workspace folder. typescript-namespace-imports-vscode-plugin will not work"
-        );
+    if (workspaceFolders === undefined) {
+        console.warn("No workspace folder. typescript-namespace-imports-vscode-plugin will not work");
         return;
     }
 
-    const moduleCompletionItemsCache: CompletionItemsCache = new CompletionItemsCacheImpl(
-        workspaceFolders
-    );
+    const moduleCompletionItemsCache = CompletionItemsCache.make(workspaceFolders);
 
     // Whenever there is a change to the workspace folders refresh the cache
     const workspaceWatcher = vscode.workspace.onDidChangeWorkspaceFolders(
