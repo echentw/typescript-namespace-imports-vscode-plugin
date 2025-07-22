@@ -48,7 +48,7 @@ export function uriToCompletionItemForProject(
     completionItem.additionalTextEdits = [
         vscode.TextEdit.insert(
             new vscode.Position(0, 0),
-            `import * as ${moduleName} from "${importPath}";\n`,
+            `import * as ${moduleName} from '${importPath}';\n`,
         ),
     ];
     return completionItem;
