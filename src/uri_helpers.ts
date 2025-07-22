@@ -41,7 +41,7 @@ export function uriToCompletionItemForProject(
     const importPath = uriToImportPathForProject(uri, project);
     
     // Return null if this file can't be imported from this project
-    if (!importPath) return null;
+    if (importPath === null) return null;
 
     const completionItem = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);
     completionItem.detail = importPath;

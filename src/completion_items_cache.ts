@@ -57,18 +57,17 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         // Add file to all projects that can access it
         for (const project of workspace.projects) {
             const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-            if (item) {
+            if (item !== null) {
                 project.completionItemsMap.putItem(item);
             }
         }
 
-        // Cache the file's owner project for file operations
-        if (!workspace.fileToProjectCache.has(uri.path)) {
-            const ownerProject = findProjectForFile(uri, workspace);
-            if (ownerProject) {
-                workspace.fileToProjectCache.set(uri.path, ownerProject);
-            }
+        const ownerProject = findProjectForFile(uri, workspace);
+        if (ownerProject === null) {
+            console.warn(`No TypeScript project found for file: ${uri.path}`);
+            return;
         }
+        workspace.fileToProjectCache.set(uri.path, ownerProject);
     };
 
     deleteFile = (uri: vscode.Uri) => {
@@ -81,7 +80,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         // Remove file from all projects that had it cached
         for (const project of workspace.projects) {
             const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-            if (item) {
+            if (item !== null) {
                 project.completionItemsMap.removeItem(item);
             }
         }
@@ -110,8 +109,6 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         
         return new vscode.CompletionList(items, false);
     };
-
-
 
     private removeWorkspace = (workspaceFolder: vscode.WorkspaceFolder): void => {
         delete this.workspaceInfoByName[workspaceFolder.name];
@@ -149,16 +146,14 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         for (const project of workspace.projects) {
             for (const uri of uris) {
                 const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-                if (item) {
+                if (item !== null) {
                     // Only add the file if it can be imported from this project
                     project.completionItemsMap.putItem(item);
                     
                     // For file-to-project cache, use the project that physically contains the file
-                    if (!workspace.fileToProjectCache.has(uri.path)) {
-                        const ownerProject = findProjectForFile(uri, workspace);
-                        if (ownerProject) {
-                            workspace.fileToProjectCache.set(uri.path, ownerProject);
-                        }
+                    const ownerProject = findProjectForFile(uri, workspace);
+                    if (ownerProject !== null) {
+                        workspace.fileToProjectCache.set(uri.path, ownerProject);
                     }
                 }
             }
