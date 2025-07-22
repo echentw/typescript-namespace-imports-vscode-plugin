@@ -54,15 +54,21 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             return;
         }
 
-        const project = findProjectForFile(uri, workspace);
-        if (project === null) {
-            console.warn(`No TypeScript project found for file: ${uri.path}`);
-            return;
+        // Add file to all projects that can access it
+        for (const project of workspace.projects) {
+            const item = uriHelpers.uriToCompletionItemForProject(uri, project);
+            if (item) {
+                project.completionItemsMap.putItem(item);
+            }
         }
 
-        const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-        project.completionItemsMap.putItem(item);
-        workspace.fileToProjectCache.set(uri.path, project);
+        // Cache the file's owner project for file operations
+        if (!workspace.fileToProjectCache.has(uri.path)) {
+            const ownerProject = findProjectForFile(uri, workspace);
+            if (ownerProject) {
+                workspace.fileToProjectCache.set(uri.path, ownerProject);
+            }
+        }
     };
 
     deleteFile = (uri: vscode.Uri) => {
@@ -72,11 +78,14 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         const workspace = this.workspaceInfoByName[workspaceFolder.name];
         if (workspace === undefined) return;
 
-        const project = workspace.fileToProjectCache.get(uri.path) ?? findProjectForFile(uri, workspace);
-        if (project === null) return;
+        // Remove file from all projects that had it cached
+        for (const project of workspace.projects) {
+            const item = uriHelpers.uriToCompletionItemForProject(uri, project);
+            if (item) {
+                project.completionItemsMap.removeItem(item);
+            }
+        }
 
-        const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-        project.completionItemsMap.removeItem(item);
         workspace.fileToProjectCache.delete(uri.path);
     };
 
@@ -96,115 +105,13 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             return [];
         }
 
-        // Get completion items from current project
+        // Get completion items from current project (now includes all accessible files)
         const items = currentProject.completionItemsMap.getItemsAt(getPrefix(query));
         
-        // Also get completion items from other projects that can be imported via path mappings
-        const crossProjectItems = this.getCrossProjectCompletions(workspace, currentProject, query);
-        
-        return new vscode.CompletionList([...items, ...crossProjectItems], false);
+        return new vscode.CompletionList(items, false);
     };
 
-    private getCrossProjectCompletions = (workspace: Workspace, currentProject: TypeScriptProject, query: string): vscode.CompletionItem[] => {
-        if (!currentProject.paths) return [];
 
-        const crossProjectItems: vscode.CompletionItem[] = [];
-        const prefix = getPrefix(query);
-
-        // Look through the current project's path mappings to find cross-project references
-        for (const [, mappings] of Object.entries(currentProject.paths)) {
-            // Skip dummy patterns
-            if (mappings.some(mapping => mapping.includes("dummy-value-so-nothing-is-resolved"))) {
-                continue;
-            }
-
-            for (const mapping of mappings) {
-                // Look for mappings that reference other projects (contain "../")
-                if (mapping.startsWith("../")) {
-                    const targetProject = this.findProjectByMapping(workspace, currentProject, mapping);
-                    if (targetProject && targetProject !== currentProject) {
-                        // Get completion items from the target project
-                        const targetItems = targetProject.completionItemsMap.getItemsAt(prefix);
-                        
-                        // Create new completion items with cross-project import paths
-                        for (const item of targetItems) {
-                            const crossProjectItem = this.createCrossProjectCompletionItem(item, targetProject, currentProject);
-                            if (crossProjectItem) {
-                                crossProjectItems.push(crossProjectItem);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return crossProjectItems;
-    };
-
-    private findProjectByMapping = (workspace: Workspace, currentProject: TypeScriptProject, mapping: string): TypeScriptProject | null => {
-        // Resolve the mapping path relative to the current project
-        const absoluteMappingPath = Path.resolve(currentProject.rootPath, mapping.replace("/*", ""));
-        
-        // Find the project that contains this path
-        return workspace.projects.find(project => {
-            return absoluteMappingPath.startsWith(project.rootPath);
-        }) ?? null;
-    };
-
-    private createCrossProjectCompletionItem = (
-        originalItem: vscode.CompletionItem,
-        targetProject: TypeScriptProject,
-        currentProject: TypeScriptProject
-    ): vscode.CompletionItem | null => {
-        // Get the original file path from the completion item detail
-        const originalImportPath = originalItem.detail;
-        if (!originalImportPath) return null;
-
-        // For cross-project imports, we need to find the correct pattern from current project's path mappings
-        const crossProjectImportPath = this.generateCrossProjectImportPath(originalImportPath, targetProject, currentProject);
-        if (!crossProjectImportPath) return null;
-
-        const completionItem = new vscode.CompletionItem(originalItem.label, vscode.CompletionItemKind.Module);
-        completionItem.detail = crossProjectImportPath;
-        completionItem.additionalTextEdits = [
-            vscode.TextEdit.insert(
-                new vscode.Position(0, 0),
-                `import * as ${originalItem.label} from "${crossProjectImportPath}";\n`,
-            ),
-        ];
-        return completionItem;
-    };
-
-    private generateCrossProjectImportPath = (
-        originalImportPath: string,
-        targetProject: TypeScriptProject,
-        currentProject: TypeScriptProject
-    ): string | null => {
-        if (!currentProject.paths) return null;
-
-        // Extract just the filename from the original import path
-        // originalImportPath might be "project1/add" but we just want "add"
-        const filename = Path.basename(originalImportPath);
-
-        // Look for a path mapping that points to the target project
-        for (const [pattern, mappings] of Object.entries(currentProject.paths)) {
-            for (const mapping of mappings) {
-                if (mapping.startsWith("../")) {
-                    // Check if this mapping resolves to the target project
-                    const absoluteMapping = Path.resolve(currentProject.rootPath, mapping.replace("/*", ""));
-                    const targetProjectSrc = Path.join(targetProject.rootPath, "src");
-                    
-                    if (absoluteMapping === targetProjectSrc) {
-                        // This mapping points to our target project's src directory
-                        // Replace the wildcard in the pattern with just the filename
-                        return pattern.replace("*", filename);
-                    }
-                }
-            }
-        }
-
-        return null;
-    };
 
     private removeWorkspace = (workspaceFolder: vscode.WorkspaceFolder): void => {
         delete this.workspaceInfoByName[workspaceFolder.name];
@@ -238,14 +145,23 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             fileToProjectCache: new Map(),
         };
 
-        // Assign each file to its appropriate project
-        for (const uri of uris) {
-            const project = findProjectForFile(uri, workspace);
-            if (project === null) continue;
-
-            const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-            project.completionItemsMap.putItem(item);
-            workspace.fileToProjectCache.set(uri.path, project);
+        // Add each file to all projects that can access it via their path mappings
+        for (const project of workspace.projects) {
+            for (const uri of uris) {
+                const item = uriHelpers.uriToCompletionItemForProject(uri, project);
+                if (item) {
+                    // Only add the file if it can be imported from this project
+                    project.completionItemsMap.putItem(item);
+                    
+                    // For file-to-project cache, use the project that physically contains the file
+                    if (!workspace.fileToProjectCache.has(uri.path)) {
+                        const ownerProject = findProjectForFile(uri, workspace);
+                        if (ownerProject) {
+                            workspace.fileToProjectCache.set(uri.path, ownerProject);
+                        }
+                    }
+                }
+            }
         }
 
         this.workspaceInfoByName[workspaceFolder.name] = workspace;
@@ -302,7 +218,6 @@ function getItemPrefix(item: vscode.CompletionItem): string {
 }
 
 function getPrefix(query: string): string {
-    // TODO: is this always getting the first char? why?
     return query.substring(0, 1);
 }
 

@@ -36,9 +36,12 @@ export function findProjectForFile(
 export function uriToCompletionItemForProject(
     uri: vscode.Uri,
     project: TypeScriptProject,
-): vscode.CompletionItem {
+): vscode.CompletionItem | null {
     const moduleName = uriToModuleName(uri);
     const importPath = uriToImportPathForProject(uri, project);
+    
+    // Return null if this file can't be imported from this project
+    if (!importPath) return null;
 
     const completionItem = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);
     completionItem.detail = importPath;
@@ -59,7 +62,7 @@ function uriToModuleName(uri: vscode.Uri): string {
 function uriToImportPathForProject(
     uri: vscode.Uri,
     project: TypeScriptProject
-): string {
+): string | null {
     const workspaceFolderPath = project.workspaceFolder.uri.path;
     const uriRelativePath = pathUtil.relative(workspaceFolderPath, uri.path);
 
@@ -71,15 +74,21 @@ function uriToImportPathForProject(
         }
     }
 
-    // Fall back to baseUrl resolution
+    // Check if file is within this project's scope (either via baseUrl or project root)
+    const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
+    
+    // Don't allow files outside the project unless explicitly mapped
+    if (projectRelativePath.startsWith("..")) {
+        return null;
+    }
+
+    // Fall back to baseUrl resolution for files within project
     if (project.baseUrl) {
-        const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
         const baseUrlPath = pathUtil.join(project.baseUrl, projectRelativePath);
         return baseUrlPath.slice(0, baseUrlPath.length - pathUtil.extname(baseUrlPath).length);
     }
 
-    // Final fallback - relative to project root
-    const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
+    // Final fallback - relative to project root for files within project
     return projectRelativePath.slice(0, projectRelativePath.length - pathUtil.extname(projectRelativePath).length);
 }
 
