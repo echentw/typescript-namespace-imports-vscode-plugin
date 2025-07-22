@@ -96,8 +96,114 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             return [];
         }
 
+        // Get completion items from current project
         const items = currentProject.completionItemsMap.getItemsAt(getPrefix(query));
-        return new vscode.CompletionList(items, false);
+        
+        // Also get completion items from other projects that can be imported via path mappings
+        const crossProjectItems = this.getCrossProjectCompletions(workspace, currentProject, query);
+        
+        return new vscode.CompletionList([...items, ...crossProjectItems], false);
+    };
+
+    private getCrossProjectCompletions = (workspace: Workspace, currentProject: TypeScriptProject, query: string): vscode.CompletionItem[] => {
+        if (!currentProject.paths) return [];
+
+        const crossProjectItems: vscode.CompletionItem[] = [];
+        const prefix = getPrefix(query);
+
+        // Look through the current project's path mappings to find cross-project references
+        for (const [, mappings] of Object.entries(currentProject.paths)) {
+            // Skip dummy patterns
+            if (mappings.some(mapping => mapping.includes("dummy-value-so-nothing-is-resolved"))) {
+                continue;
+            }
+
+            for (const mapping of mappings) {
+                // Look for mappings that reference other projects (contain "../")
+                if (mapping.startsWith("../")) {
+                    const targetProject = this.findProjectByMapping(workspace, currentProject, mapping);
+                    if (targetProject && targetProject !== currentProject) {
+                        // Get completion items from the target project
+                        const targetItems = targetProject.completionItemsMap.getItemsAt(prefix);
+                        
+                        // Create new completion items with cross-project import paths
+                        for (const item of targetItems) {
+                            const crossProjectItem = this.createCrossProjectCompletionItem(item, targetProject, currentProject);
+                            if (crossProjectItem) {
+                                crossProjectItems.push(crossProjectItem);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return crossProjectItems;
+    };
+
+    private findProjectByMapping = (workspace: Workspace, currentProject: TypeScriptProject, mapping: string): TypeScriptProject | null => {
+        // Resolve the mapping path relative to the current project
+        const absoluteMappingPath = Path.resolve(currentProject.rootPath, mapping.replace("/*", ""));
+        
+        // Find the project that contains this path
+        return workspace.projects.find(project => {
+            return absoluteMappingPath.startsWith(project.rootPath);
+        }) ?? null;
+    };
+
+    private createCrossProjectCompletionItem = (
+        originalItem: vscode.CompletionItem,
+        targetProject: TypeScriptProject,
+        currentProject: TypeScriptProject
+    ): vscode.CompletionItem | null => {
+        // Get the original file path from the completion item detail
+        const originalImportPath = originalItem.detail;
+        if (!originalImportPath) return null;
+
+        // For cross-project imports, we need to find the correct pattern from current project's path mappings
+        const crossProjectImportPath = this.generateCrossProjectImportPath(originalImportPath, targetProject, currentProject);
+        if (!crossProjectImportPath) return null;
+
+        const completionItem = new vscode.CompletionItem(originalItem.label, vscode.CompletionItemKind.Module);
+        completionItem.detail = crossProjectImportPath;
+        completionItem.additionalTextEdits = [
+            vscode.TextEdit.insert(
+                new vscode.Position(0, 0),
+                `import * as ${originalItem.label} from "${crossProjectImportPath}";\n`,
+            ),
+        ];
+        return completionItem;
+    };
+
+    private generateCrossProjectImportPath = (
+        originalImportPath: string,
+        targetProject: TypeScriptProject,
+        currentProject: TypeScriptProject
+    ): string | null => {
+        if (!currentProject.paths) return null;
+
+        // Extract just the filename from the original import path
+        // originalImportPath might be "project1/add" but we just want "add"
+        const filename = Path.basename(originalImportPath);
+
+        // Look for a path mapping that points to the target project
+        for (const [pattern, mappings] of Object.entries(currentProject.paths)) {
+            for (const mapping of mappings) {
+                if (mapping.startsWith("../")) {
+                    // Check if this mapping resolves to the target project
+                    const absoluteMapping = Path.resolve(currentProject.rootPath, mapping.replace("/*", ""));
+                    const targetProjectSrc = Path.join(targetProject.rootPath, "src");
+                    
+                    if (absoluteMapping === targetProjectSrc) {
+                        // This mapping points to our target project's src directory
+                        // Replace the wildcard in the pattern with just the filename
+                        return pattern.replace("*", filename);
+                    }
+                }
+            }
+        }
+
+        return null;
     };
 
     private removeWorkspace = (workspaceFolder: vscode.WorkspaceFolder): void => {

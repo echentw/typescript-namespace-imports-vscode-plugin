@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 
-// TODO: what is this a map of?
 export interface CompletionItemMap {
     putItem(item: vscode.CompletionItem): void;
     getItemsAt(key: string): vscode.CompletionItem[];
