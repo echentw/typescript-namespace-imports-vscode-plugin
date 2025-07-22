@@ -31,7 +31,7 @@ export class CompletionItemMapImpl implements CompletionItemMap {
     putItem = (item: vscode.CompletionItem): void => {
         const key = this.makeKey(item);
         if (this._map[key] === undefined) {
-            this._map[key] = [];
+            this._map[key] = [item];
         } else {
             this._map[key].push(item);
         }
