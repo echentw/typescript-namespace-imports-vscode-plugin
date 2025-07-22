@@ -74,21 +74,15 @@ function uriToImportPathForProject(
         }
     }
 
-    // Check if file is within this project's scope (either via baseUrl or project root)
-    const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
-    
-    // Don't allow files outside the project unless explicitly mapped
-    if (projectRelativePath.startsWith("..")) {
-        return null;
-    }
-
-    // Fall back to baseUrl resolution for files within project
+    // Fall back to baseUrl resolution
     if (project.baseUrl) {
+        const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
         const baseUrlPath = pathUtil.join(project.baseUrl, projectRelativePath);
         return baseUrlPath.slice(0, baseUrlPath.length - pathUtil.extname(baseUrlPath).length);
     }
 
-    // Final fallback - relative to project root for files within project
+    // Final fallback - relative to project root
+    const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
     return projectRelativePath.slice(0, projectRelativePath.length - pathUtil.extname(projectRelativePath).length);
 }
 
