@@ -67,15 +67,15 @@ function uriToImportPathForProject(
     const uriRelativePath = pathUtil.relative(workspaceFolderPath, uri.path);
 
     // First try path mappings specific to this project
-    if (project.paths) {
+    if (project.paths !== undefined) {
         const matchedPath = matchPathPatternForProject(uriRelativePath, project);
-        if (matchedPath) {
+        if (matchedPath !== null) {
             return matchedPath.slice(0, matchedPath.length - pathUtil.extname(matchedPath).length);
         }
     }
 
     // Fall back to baseUrl resolution
-    if (project.baseUrl) {
+    if (project.baseUrl !== undefined) {
         const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
         const baseUrlPath = pathUtil.join(project.baseUrl, projectRelativePath);
         return baseUrlPath.slice(0, baseUrlPath.length - pathUtil.extname(baseUrlPath).length);
@@ -92,11 +92,6 @@ function matchPathPatternForProject(filePath: string, project: TypeScriptProject
     const projectRelativeRoot = pathUtil.relative(project.workspaceFolder.uri.path, project.rootPath);
 
     for (const [pattern, mappings] of Object.entries(project.paths)) {
-        // Skip the dummy pattern that resolves nothing
-        if (mappings.includes("dummy-value-so-nothing-is-resolved")) {
-            continue;
-        }
-
         for (const mapping of mappings) {
             // Resolve the mapping relative to the project's baseUrl (which is ".")
             let resolvedMapping = mapping;
