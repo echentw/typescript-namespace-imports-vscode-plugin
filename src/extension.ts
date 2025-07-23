@@ -8,6 +8,9 @@ const openGraphQLTag = /gql`[^`]*$/;
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
+
+    console.log('activating');
+
     if (workspaceFolders === undefined) {
         console.warn("No workspace folder. typescript-namespace-imports-vscode-plugin will not work");
         return;

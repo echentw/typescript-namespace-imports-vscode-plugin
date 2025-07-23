@@ -123,11 +123,12 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             return;
         }
 
-        const typescriptPattern = new vscode.RelativePattern(workspaceFolder, "**/*.{ts,tsx}");
+        const includePattern = new vscode.RelativePattern(workspaceFolder, "**/*.{ts,tsx}");
+        const excludePattern = new vscode.RelativePattern(workspaceFolder, "**/node_modules/**");
 
         let uris: Array<vscode.Uri> = [];
         try {
-            uris = await vscode.workspace.findFiles(typescriptPattern);
+            uris = await vscode.workspace.findFiles(includePattern, excludePattern);
         } catch (error) {
             console.error(`Error creating cache: ${error}`);
             return;
@@ -160,6 +161,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         }
 
         this.workspaceInfoByName[workspaceFolder.name] = workspace;
+        console.log('this.workspaceInfoByName', this.workspaceInfoByName)
     };
 }
 
@@ -167,8 +169,9 @@ async function discoverTypeScriptProjectsAsync(
     workspaceFolder: vscode.WorkspaceFolder
 ): Promise<Array<Omit<TypeScriptProject, "completionItemsMap">>> {
     const tsconfigPattern = new vscode.RelativePattern(workspaceFolder, "**/tsconfig.json");
+    const excludePattern = new vscode.RelativePattern(workspaceFolder, "**/node_modules/**");
 
-    const tsconfigUris = await vscode.workspace.findFiles(tsconfigPattern);
+    const tsconfigUris = await vscode.workspace.findFiles(tsconfigPattern, excludePattern);
 
     const projects = await Promise.all(
         tsconfigUris.map(async tsconfigUri => {
