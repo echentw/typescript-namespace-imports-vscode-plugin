@@ -3,9 +3,10 @@ import * as pathUtil from "path";
 import * as _ from "lodash";
 import { CompletionItemMap } from "./completion_item_map";
 
-export type PathMapping = {
+export type TsConfigInfo = {
     baseUrl?: string;
     paths?: Record<string, Array<string>>;
+    outDir?: string;
 }
 
 export type TypeScriptProject = {
@@ -14,6 +15,7 @@ export type TypeScriptProject = {
     workspaceFolder: vscode.WorkspaceFolder;
     baseUrl?: string;
     paths?: Record<string, Array<string>>;
+    outDir?: string;
     completionItemsMap: CompletionItemMap;
 }
 
