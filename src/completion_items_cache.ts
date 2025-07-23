@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as uriHelpers from "./uri_helpers";
 import { TsConfigInfo, TypeScriptProject } from "./uri_helpers";
-import * as Path from "path";
+import * as pathUtil from "path";
 import * as ts from "typescript";
 import { CompletionItemMap } from "./completion_item_map";
 
@@ -54,7 +54,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             return;
         }
 
-        // Skip files that are in outDir folders
+        // Skip files that are in node_modules and outDir folders
         if (uri.path.includes('node_modules/') || isFileInOutDir(uri, workspace.projects)) {
             return;
         }
@@ -130,12 +130,12 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
 
         const includePattern = new vscode.RelativePattern(workspaceFolder, "**/*.{ts,tsx}");
 
-        // TODO: hacky!
         const excludePatterns = projects.map(p => getAbsoluteOutDir(p)).filter(p => p !== null)
-            .map(folder => folder!.slice(workspaceFolder.uri.path.length + 1) + '/**');
-
-        console.log('excludePatterns', excludePatterns)
-
+            .flatMap(folder => {
+                return folder === null
+                    ? []
+                    : [pathUtil.relative(workspaceFolder.uri.path, folder) + '/**'];
+            });
         const excludePattern = new vscode.RelativePattern(workspaceFolder, `{**/node_modules/**,${excludePatterns.join(',')}}`);
 
         let uris: Array<vscode.Uri> = [];
@@ -172,7 +172,6 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         }
 
         this.workspaceInfoByName[workspaceFolder.name] = workspace;
-        console.log('this.workspaceInfoByName', this.workspaceInfoByName)
     };
 }
 
@@ -198,7 +197,7 @@ async function discoverTypeScriptProjectsAsync(
 
             const project: TypeScriptProject = {
                 tsconfigPath: tsconfigUri.path,
-                rootPath: Path.dirname(tsconfigUri.path),
+                rootPath: pathUtil.dirname(tsconfigUri.path),
                 workspaceFolder,
                 baseUrl: pathMapping.baseUrl,
                 paths: pathMapping.paths,
@@ -271,9 +270,9 @@ function isFileInOutDir(uri: vscode.Uri, projects: TypeScriptProject[]): boolean
 function getAbsoluteOutDir(project: TypeScriptProject): string | null {
     if (project.outDir === undefined) return null;
 
-            return Path.isAbsolute(project.outDir)
-                ? project.outDir
-                : Path.resolve(project.rootPath, project.outDir);
+    return pathUtil.isAbsolute(project.outDir)
+        ? project.outDir
+        : pathUtil.resolve(project.rootPath, project.outDir);
 }
 
 function getWorkspaceFolderFromUri(uri: vscode.Uri): vscode.WorkspaceFolder | null {
