@@ -146,8 +146,6 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             return;
         }
 
-        console.log('uris', uris.map(uri => uri.path));
-
         const workspace: Workspace = {
             workspaceFolder,
             projects,
@@ -197,7 +195,7 @@ async function discoverTypeScriptProjectsAsync(
 
             const project: TypeScriptProject = {
                 tsconfigPath: tsconfigUri.path,
-                rootPath: pathUtil.dirname(tsconfigUri.path),
+                rootPath: pathUtil.join(pathUtil.dirname(tsconfigUri.path), pathMapping.rootDir || "."),
                 workspaceFolder,
                 baseUrl: pathMapping.baseUrl,
                 paths: pathMapping.paths,
@@ -249,6 +247,10 @@ function parseTsConfig(tsconfigDoc: vscode.TextDocument): TsConfigInfo {
 
         if ("outDir" in compilerOptions) {
             info.outDir = compilerOptions["outDir"] as string;
+        }
+
+        if ("rootDir" in compilerOptions) {
+            info.rootDir = compilerOptions["rootDir"] as string;
         }
     }
 

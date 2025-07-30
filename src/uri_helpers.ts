@@ -7,6 +7,7 @@ export type TsConfigInfo = {
     baseUrl?: string;
     paths?: Record<string, Array<string>>;
     outDir?: string;
+    rootDir?: string;
 }
 
 export type TypeScriptProject = {
