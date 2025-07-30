@@ -8,7 +8,7 @@ import { CompletionItemMap } from "./completion_item_map";
 type Workspace = {
     workspaceFolder: vscode.WorkspaceFolder;
     projects: TypeScriptProject[];
-    fileToProjectCache: Map<string, TypeScriptProject>;
+    fileToProjectCache: Map<string, TypeScriptProject[]>;
 };
 
 export type CompletionItemsCache = {
@@ -60,19 +60,19 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         }
 
         // Add file to all projects that can access it
+        const projectsForFile: TypeScriptProject[] = [];
+        
         for (const project of workspace.projects) {
             const item = uriHelpers.uriToCompletionItemForProject(uri, project);
             if (item !== null) {
                 project.completionItemsMap.putItem(item);
+                projectsForFile.push(project);
             }
         }
 
-        const ownerProject = findProjectForFile(uri, workspace);
-        if (ownerProject === null) {
-            console.warn(`No TypeScript project found for file: ${uri.path}`);
-            return;
+        if (projectsForFile.length > 0) {
+            workspace.fileToProjectCache.set(uri.path, projectsForFile);
         }
-        workspace.fileToProjectCache.set(uri.path, ownerProject);
     };
 
     deleteFile = (uri: vscode.Uri) => {
@@ -103,16 +103,37 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             return [];
         }
 
-        const currentProject = workspace.fileToProjectCache.get(currentUri.path) ?? findProjectForFile(currentUri, workspace);
-        if (currentProject === null) {
-            console.warn(`No TypeScript project found for current file: ${currentUri.path}`);
-            return [];
+        const currentProjects = workspace.fileToProjectCache.get(currentUri.path);
+        if (currentProjects === undefined || currentProjects.length === 0) {
+            // Fallback to finding project that physically contains the file
+            const fallbackProject = findProjectForFile(currentUri, workspace);
+            if (fallbackProject === null) {
+                console.warn(`No TypeScript project found for current file: ${currentUri.path}`);
+                return [];
+            }
+            
+            const items = fallbackProject.completionItemsMap.getItemsAt(getPrefix(query));
+            return new vscode.CompletionList(items, false);
         }
 
-        // Get completion items from current project (now includes all accessible files)
-        const items = currentProject.completionItemsMap.getItemsAt(getPrefix(query));
+        // Get completion items from all projects that can access this file
+        const allItems: vscode.CompletionItem[] = [];
+        const seenItems = new Set<string>();
         
-        return new vscode.CompletionList(items, false);
+        for (const project of currentProjects) {
+            const items = project.completionItemsMap.getItemsAt(getPrefix(query));
+            for (const item of items) {
+                // Avoid duplicates based on the import path
+                const label = typeof item.label === 'string' ? item.label : item.label.label;
+                const key = item.detail || label;
+                if (!seenItems.has(key)) {
+                    seenItems.add(key);
+                    allItems.push(item);
+                }
+            }
+        }
+        
+        return new vscode.CompletionList(allItems, false);
     };
 
     private removeWorkspace = (workspaceFolder: vscode.WorkspaceFolder): void => {
@@ -153,19 +174,21 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         };
 
         // Add each file to all projects that can access it via their path mappings
-        for (const project of workspace.projects) {
-            for (const uri of uris) {
+        for (const uri of uris) {
+            const projectsForFile: TypeScriptProject[] = [];
+            
+            for (const project of workspace.projects) {
                 const item = uriHelpers.uriToCompletionItemForProject(uri, project);
                 if (item !== null) {
                     // Only add the file if it can be imported from this project
                     project.completionItemsMap.putItem(item);
-                    
-                    // For file-to-project cache, use the project that physically contains the file
-                    const ownerProject = findProjectForFile(uri, workspace);
-                    if (ownerProject !== null) {
-                        workspace.fileToProjectCache.set(uri.path, ownerProject);
-                    }
+                    projectsForFile.push(project);
                 }
+            }
+            
+            // Cache all projects that can import this file
+            if (projectsForFile.length > 0) {
+                workspace.fileToProjectCache.set(uri.path, projectsForFile);
             }
         }
 
