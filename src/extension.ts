@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CompletionItemsService } from './completion_items_cache';
+import { CompletionItemsService } from './completion_items_service';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed

@@ -1,26 +1,27 @@
-import * as vscode from "vscode";
-import * as uriHelpers from "./uri_helpers";
-import { TsConfigInfo, TypeScriptProject } from "./uri_helpers";
-import * as pathUtil from "path";
-import * as ts from "typescript";
-import { CompletionItemMap } from "./completion_item_map";
+import * as vscode from 'vscode';
+import * as u from './u';
+import {Result} from './u';
+import * as uriHelpers from './uri_helpers';
+import {TsConfigInfo, TypeScriptProject} from './uri_helpers';
+import * as pathUtil from 'path';
+import * as ts from 'typescript';
+import { CompletionItemMap } from './completion_item_map';
 
 type Workspace = {
-    workspaceFolder: vscode.WorkspaceFolder;
-    projects: TypeScriptProject[];
-    fileToProjectCache: Map<string, TypeScriptProject>;
+    tsProjects: Array<TypeScriptProject>;
+    ownerTsProjectByTsFilePath: Map<TsFilePath, TypeScriptProject>;
 };
 
 // type Workspace = {
 // 	tsProjectByPath: Map<TsProjectPath, TsProject>;
 // 	tsProjectPathByTsFilePath: Map<TsFilePath, TsProjectPath>;
 // };
-
+//
 // type TsProject = {
 // 	completionItemsByQueryFirstChar: Map<Char, Array<vscode.CompletionItem>>;
 // 	tsConfigJson: TsConfigJson;
 // };
-
+//
 // type TsConfigJson = {
 // 	paths: Record<string, string>;
 // 	baseUrl: string | null;
@@ -49,18 +50,34 @@ export const CompletionItemsService = {
 // solution might be to implement some type of trie tree for CompletionItems
 export class CompletionItemsServiceImpl implements CompletionItemsService {
     // Map from workspaceFolder.name -> cached workspace data
-    private workspaceInfoByName: Record<string, Workspace> = {};
+    private workspaceByName: Map<WorkspaceName, Workspace>;
 
     constructor(workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>) {
-        workspaceFolders.forEach(this.addWorkspaceAsync);
+        this.workspaceByName = new Map();
+
+        u.fireAndForget(async () => {
+            for (const folder of workspaceFolders) {
+                const result = await makeWorkspaceAsync(folder);
+                if (result.ok) {
+                    this.workspaceByName.set(folder.name, result.value);
+                } else {
+                    console.warn(result.err);
+                }
+            }
+        });
     }
 
     handleWorkspaceChangedAsync = async (event: vscode.WorkspaceFoldersChangeEvent) => {
-        for (const workspace of event.added) {
-            await this.addWorkspaceAsync(workspace);
+        for (const folder of event.added) {
+            const result = await makeWorkspaceAsync(folder);
+            if (result.ok) {
+                this.workspaceByName.set(folder.name, result.value);
+            } else {
+                console.warn(result.err);
+            }
         }
-        for (const workspace of event.removed) {
-            this.removeWorkspace(workspace);
+        for (const folder of event.removed) {
+            this.workspaceByName.delete(folder.name);
         }
     };
 
@@ -68,19 +85,19 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         const workspaceFolder = getWorkspaceFolderFromUri(uri);
         if (workspaceFolder === null) return;
 
-        const workspace = this.workspaceInfoByName[workspaceFolder.name];
+        const workspace = this.workspaceByName.get(workspaceFolder.name);
         if (workspace === undefined) {
-            console.error("Cannot add item: Workspace has not been cached");
+            console.error('Cannot add item: Workspace has not been cached');
             return;
         }
 
         // Skip files that are in node_modules and outDir folders
-        if (uri.path.includes('node_modules/') || isFileInOutDir(uri, workspace.projects)) {
+        if (uri.path.includes('node_modules/') || isFileInOutDir(uri, workspace.tsProjects)) {
             return;
         }
 
         // Add file to all projects that can access it
-        for (const project of workspace.projects) {
+        for (const project of workspace.tsProjects) {
             const item = uriHelpers.uriToCompletionItemForProject(uri, project);
             if (item !== null) {
                 project.completionItemsMap.putItem(item);
@@ -92,38 +109,38 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
             console.warn(`No TypeScript project found for file: ${uri.path}`);
             return;
         }
-        workspace.fileToProjectCache.set(uri.path, ownerProject);
+        workspace.ownerTsProjectByTsFilePath.set(uri.path, ownerProject);
     };
 
     handleFileDeleted = (uri: vscode.Uri) => {
         const workspaceFolder = getWorkspaceFolderFromUri(uri);
         if (workspaceFolder === null) return;
 
-        const workspace = this.workspaceInfoByName[workspaceFolder.name];
+        const workspace = this.workspaceByName.get(workspaceFolder.name);
         if (workspace === undefined) return;
 
         // Remove file from all projects that had it cached
-        for (const project of workspace.projects) {
+        for (const project of workspace.tsProjects) {
             const item = uriHelpers.uriToCompletionItemForProject(uri, project);
             if (item !== null) {
                 project.completionItemsMap.removeItem(item);
             }
         }
 
-        workspace.fileToProjectCache.delete(uri.path);
+        workspace.ownerTsProjectByTsFilePath.delete(uri.path);
     };
 
     getCompletionList = (uri: vscode.Uri, query: string): vscode.CompletionList | [] => {
         const workspaceFolder = getWorkspaceFolderFromUri(uri);
         if (workspaceFolder === null) return [];
 
-        const workspace = this.workspaceInfoByName[workspaceFolder.name];
+        const workspace = this.workspaceByName.get(workspaceFolder.name);
         if (workspace === undefined) {
-            console.warn("Workspace was not in cache");
+            console.warn('Workspace was not in cache');
             return [];
         }
 
-        const currentProject = workspace.fileToProjectCache.get(uri.path) ?? findProjectForFile(uri, workspace);
+        const currentProject = workspace.ownerTsProjectByTsFilePath.get(uri.path) ?? findProjectForFile(uri, workspace);
         if (currentProject === null) {
             console.warn(`No TypeScript project found for current file: ${uri.path}`);
             return [];
@@ -134,72 +151,66 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         
         return new vscode.CompletionList(items, false);
     };
+}
 
-    private removeWorkspace = (workspaceFolder: vscode.WorkspaceFolder): void => {
-        delete this.workspaceInfoByName[workspaceFolder.name];
+async function makeWorkspaceAsync(workspaceFolder: vscode.WorkspaceFolder): Promise<Result<Workspace, string>> {
+    let projects: Array<TypeScriptProject>;
+    try {
+        projects = await discoverTsProjectsAsync(workspaceFolder);
+    } catch (error) {
+        return Result.err(`Failed finding typescript projects: ${error}`);
+    }
+
+    const includePattern = new vscode.RelativePattern(workspaceFolder, "**/*.{ts,tsx}");
+
+    const excludePatterns = projects.flatMap(project => {
+        const folder = getAbsoluteOutDir(project);
+        return folder === null
+            ? []
+            : [pathUtil.relative(workspaceFolder.uri.path, folder) + "/**"];
+    });
+    const excludePattern = new vscode.RelativePattern(
+        workspaceFolder,
+        `{**/node_modules/**,${excludePatterns.join(",")}}`
+    );
+
+    let uris: Array<vscode.Uri> = [];
+    try {
+        uris = await vscode.workspace.findFiles(includePattern, excludePattern);
+    } catch (error) {
+        return Result.err(`Error creating cache: ${error}`);
+    }
+
+    const workspace: Workspace = {
+        tsProjects: projects,
+        ownerTsProjectByTsFilePath: new Map(),
     };
 
-    private addWorkspaceAsync = async (workspaceFolder: vscode.WorkspaceFolder): Promise<void> => {
-        let projects: Array<TypeScriptProject>;
-        try {
-            projects = await discoverTypeScriptProjectsAsync(workspaceFolder);
-        } catch (error) {
-            console.error(`Error discovering TypeScript projects: ${error}`);
-            return;
-        }
+    // Add each file to all projects that can access it via their path mappings
+    for (const project of workspace.tsProjects) {
+        for (const uri of uris) {
+            const item = uriHelpers.uriToCompletionItemForProject(uri, project);
+            if (item !== null) {
+                // Only add the file if it can be imported from this project
+                project.completionItemsMap.putItem(item);
 
-        const includePattern = new vscode.RelativePattern(workspaceFolder, "**/*.{ts,tsx}");
-
-        const excludePatterns = projects.map(p => getAbsoluteOutDir(p)).filter(p => p !== null)
-            .flatMap(folder => {
-                return folder === null
-                    ? []
-                    : [pathUtil.relative(workspaceFolder.uri.path, folder) + '/**'];
-            });
-        const excludePattern = new vscode.RelativePattern(workspaceFolder, `{**/node_modules/**,${excludePatterns.join(',')}}`);
-
-        let uris: Array<vscode.Uri> = [];
-        try {
-            uris = await vscode.workspace.findFiles(includePattern, excludePattern);
-        } catch (error) {
-            console.error(`Error creating cache: ${error}`);
-            return;
-        }
-
-        console.log('uris', uris.map(uri => uri.path));
-
-        const workspace: Workspace = {
-            workspaceFolder,
-            projects,
-            fileToProjectCache: new Map(),
-        };
-
-        // Add each file to all projects that can access it via their path mappings
-        for (const project of workspace.projects) {
-            for (const uri of uris) {
-                const item = uriHelpers.uriToCompletionItemForProject(uri, project);
-                if (item !== null) {
-                    // Only add the file if it can be imported from this project
-                    project.completionItemsMap.putItem(item);
-                    
-                    // For file-to-project cache, use the project that physically contains the file
-                    const ownerProject = findProjectForFile(uri, workspace);
-                    if (ownerProject !== null) {
-                        workspace.fileToProjectCache.set(uri.path, ownerProject);
-                    }
+                // For file-to-project cache, use the project that physically contains the file
+                const ownerProject = findProjectForFile(uri, workspace);
+                if (ownerProject !== null) {
+                    workspace.ownerTsProjectByTsFilePath.set(uri.path, ownerProject);
                 }
             }
         }
+    }
 
-        this.workspaceInfoByName[workspaceFolder.name] = workspace;
-    };
+    return Result.ok(workspace);
 }
 
-async function discoverTypeScriptProjectsAsync(
+async function discoverTsProjectsAsync(
     workspaceFolder: vscode.WorkspaceFolder
 ): Promise<Array<TypeScriptProject>> {
-    const tsconfigPattern = new vscode.RelativePattern(workspaceFolder, "**/tsconfig.json");
-    const excludePattern = new vscode.RelativePattern(workspaceFolder, "**/node_modules/**");
+    const tsconfigPattern = new vscode.RelativePattern(workspaceFolder, '**/tsconfig.json');
+    const excludePattern = new vscode.RelativePattern(workspaceFolder, '**/node_modules/**');
 
     const tsconfigUris = await vscode.workspace.findFiles(tsconfigPattern, excludePattern);
 
@@ -233,16 +244,16 @@ async function discoverTypeScriptProjectsAsync(
 
     // Sort by depth (deepest first) for proper nesting hierarchy
     return validProjects.sort(
-        (a, b) => b.rootPath.split("/").length - a.rootPath.split("/").length
+        (a, b) => b.rootPath.split('/').length - a.rootPath.split('/').length
     );
 }
 
 function findProjectForFile(uri: vscode.Uri, workspace: Workspace): TypeScriptProject | null {
-    return uriHelpers.findProjectForFile(uri, workspace.projects);
+    return uriHelpers.findProjectForFile(uri, workspace.tsProjects);
 }
 
 function getItemPrefix(item: vscode.CompletionItem): string {
-    return typeof item.label === "string"
+    return typeof item.label === 'string'
         ? getPrefix(item.label)
         : getPrefix(item.label.label);
 }
@@ -256,19 +267,19 @@ function parseTsConfig(tsconfigDoc: vscode.TextDocument): TsConfigInfo {
     const tsconfigObj = parseResults.config;
 
     const info: TsConfigInfo = {};
-    if ("compilerOptions" in tsconfigObj) {
-        const compilerOptions = tsconfigObj["compilerOptions"];
+    if ('compilerOptions' in tsconfigObj) {
+        const compilerOptions = tsconfigObj['compilerOptions'];
 
-        if ("baseUrl" in compilerOptions) {
-            info.baseUrl = compilerOptions["baseUrl"] as string;
+        if ('baseUrl' in compilerOptions) {
+            info.baseUrl = compilerOptions['baseUrl'] as string;
         }
 
-        if ("paths" in compilerOptions) {
-            info.paths = compilerOptions["paths"] as Record<string, Array<string>>;
+        if ('paths' in compilerOptions) {
+            info.paths = compilerOptions['paths'] as Record<string, Array<string>>;
         }
 
-        if ("outDir" in compilerOptions) {
-            info.outDir = compilerOptions["outDir"] as string;
+        if ('outDir' in compilerOptions) {
+            info.outDir = compilerOptions['outDir'] as string;
         }
     }
 
@@ -298,7 +309,7 @@ function getAbsoluteOutDir(project: TypeScriptProject): string | null {
 function getWorkspaceFolderFromUri(uri: vscode.Uri): vscode.WorkspaceFolder | null {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri) ?? null;
     if (workspaceFolder === null) {
-        console.error("URI in undefined workspaceFolder", uri);
+        console.error('URI in undefined workspaceFolder', uri);
     }
     return workspaceFolder;
 }
