@@ -3,12 +3,6 @@ import * as pathUtil from "path";
 import * as _ from "lodash";
 import { TsConfigJson } from "./completion_items_service";
 
-export type TsConfigInfo = {
-    baseUrl?: string;
-    paths?: Record<string, Array<string>>;
-    outDir?: string;
-}
-
 export type TypeScriptProject = {
     tsConfigJson: TsConfigJson;
     workspaceFolder: vscode.WorkspaceFolder;
@@ -65,7 +59,7 @@ function uriToImportPathForProject(
     const uriRelativePath = pathUtil.relative(workspaceFolderPath, uri.path);
 
     // First try path mappings specific to this project
-    if (project.tsConfigJson.paths !== undefined) {
+    if (project.tsConfigJson.value.paths !== undefined) {
         const matchedPath = matchPathPatternForProject(uriRelativePath, project);
         if (matchedPath !== null) {
             return matchedPath.slice(0, matchedPath.length - pathUtil.extname(matchedPath).length);
@@ -73,9 +67,9 @@ function uriToImportPathForProject(
     }
 
     // Fall back to baseUrl resolution
-    if (project.tsConfigJson.baseUrl !== undefined) {
+    if (project.tsConfigJson.value.baseUrl !== null) {
         const projectRelativePath = pathUtil.relative(project.tsConfigJson.rootPath, uri.path);
-        const baseUrlPath = pathUtil.join(project.tsConfigJson.baseUrl, projectRelativePath);
+        const baseUrlPath = pathUtil.join(project.tsConfigJson.value.baseUrl, projectRelativePath);
         return baseUrlPath.slice(0, baseUrlPath.length - pathUtil.extname(baseUrlPath).length);
     }
 
@@ -85,11 +79,11 @@ function uriToImportPathForProject(
 }
 
 function matchPathPatternForProject(filePath: string, project: TypeScriptProject): string | null {
-    if (!project.tsConfigJson.paths) return null;
+    if (!project.tsConfigJson.value.paths) return null;
 
     const projectRelativeRoot = pathUtil.relative(project.workspaceFolder.uri.path, project.tsConfigJson.rootPath);
 
-    for (const [pattern, mappings] of Object.entries(project.tsConfigJson.paths)) {
+    for (const [pattern, mappings] of Object.entries(project.tsConfigJson.value.paths)) {
         for (const mapping of mappings) {
             // Resolve the mapping relative to the project's baseUrl (which is ".")
             let resolvedMapping = mapping;

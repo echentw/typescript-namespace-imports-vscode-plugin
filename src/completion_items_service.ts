@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as u from "./u";
 import { Result } from "./u";
 import * as uriHelpers from "./uri_helpers";
-import { TsConfigInfo, TypeScriptProject } from "./uri_helpers";
+import { TypeScriptProject } from "./uri_helpers";
 import * as pathUtil from "path";
 import * as ts from "typescript";
 
@@ -24,15 +24,17 @@ type Workspace = {
 
 export type TsConfigJson = {
     rootPath: string;
-    baseUrl?: string;
-    paths?: Record<string, Array<string>>;
-    outDir?: string;
+    value: TsConfigJsonValue;
 };
 
-type Char = string;
+export type TsConfigJsonValue = {
+    baseUrl: string | null;
+    paths: Record<string, Array<string>> | null;
+    outDir: string | null;
+};
+
 type WorkspaceName = string;
 type TsFilePath = string; // relative to workspace root
-type TsProjectPath = string; // relative to workspace root
 
 export type CompletionItemsService = {
     getCompletionList: (uri: vscode.Uri, query: string) => vscode.CompletionList | [];
@@ -134,7 +136,7 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
                 if (itemsInMap !== undefined) {
                     project.completionItemsByQueryFirstChar.set(
                         key,
-                        itemsInMap.filter(itemInMap => itemInMap !== item),
+                        itemsInMap.filter(itemInMap => itemInMap !== item)
                     );
                 }
             }
@@ -153,9 +155,7 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
             return [];
         }
 
-        const currentProject =
-            workspace.ownerTsProjectByTsFilePath.get(uri.path) ??
-            uriHelpers.findProjectForFile(uri, workspace.tsProjects);
+        const currentProject = workspace.ownerTsProjectByTsFilePath.get(uri.path) ?? null;
         if (currentProject === null) {
             console.warn(`No TypeScript project found for current file: ${uri.path}`);
             return [];
@@ -163,7 +163,6 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
 
         // Get completion items from current project (now includes all accessible files)
         const items = currentProject.completionItemsByQueryFirstChar.get(u.firstChar(query)) ?? [];
-
         return new vscode.CompletionList(items, false);
     };
 }
@@ -196,7 +195,7 @@ async function makeWorkspaceAsync(
         tsConfigJson,
         workspaceFolder,
         completionItemsByQueryFirstChar: new Map(),
-    }))
+    }));
     const ownerTsProjectByTsFilePath = new Map<TsFilePath, TypeScriptProject>();
 
     // Add each file to all projects that can access it via their path mappings
@@ -205,8 +204,11 @@ async function makeWorkspaceAsync(
             const item = uriHelpers.uriToCompletionItemForProject(uri, project);
             if (item !== null) {
                 // Only add the file if it can be imported from this project
-                u.getOrCreate(project.completionItemsByQueryFirstChar, getItemPrefix(item), () => [])
-                    .push(item);
+                u.getOrCreate(
+                    project.completionItemsByQueryFirstChar,
+                    getItemPrefix(item),
+                    () => []
+                ).push(item);
 
                 // For file-to-project cache, use the project that physically contains the file
                 const ownerProject = uriHelpers.findProjectForFile(uri, tsProjects);
@@ -239,27 +241,24 @@ async function discoverTsJsonsAsync(
 
     const tsConfigJsons: Array<TsConfigJson> = [];
     for (const tsConfigUri of tsconfigUris) {
-        let tsconfigDoc: vscode.TextDocument;
+        let tsConfigDoc: vscode.TextDocument;
         try {
-            tsconfigDoc = await vscode.workspace.openTextDocument(tsConfigUri);
+            tsConfigDoc = await vscode.workspace.openTextDocument(tsConfigUri);
         } catch (error) {
             console.error(`Error reading tsconfig at ${tsConfigUri.path}: ${error}`);
             continue;
         }
 
-        const pathMapping = parseTsConfig(tsconfigDoc);
         tsConfigJsons.push({
             rootPath: pathUtil.dirname(tsConfigUri.path),
-            baseUrl: pathMapping.baseUrl,
-            paths: pathMapping.paths,
-            outDir: pathMapping.outDir,
+            value: parseTsConfig(tsConfigDoc),
         });
     }
 
     // Sort by depth (deepest first) for proper nesting hierarchy
-    return Result.ok(tsConfigJsons.sort(
-        (a, b) => b.rootPath.split("/").length - a.rootPath.split("/").length
-    ));
+    return Result.ok(
+        tsConfigJsons.sort((a, b) => b.rootPath.split("/").length - a.rootPath.split("/").length)
+    );
 }
 
 function getItemPrefix(item: vscode.CompletionItem): string {
@@ -270,28 +269,28 @@ function getItemPrefix(item: vscode.CompletionItem): string {
     }
 }
 
-function parseTsConfig(tsconfigDoc: vscode.TextDocument): TsConfigInfo {
+function parseTsConfig(tsconfigDoc: vscode.TextDocument): TsConfigJsonValue {
     const parseResults = ts.parseConfigFileTextToJson(tsconfigDoc.fileName, tsconfigDoc.getText());
     const tsconfigObj = parseResults.config;
 
-    const info: TsConfigInfo = {};
+    let baseUrl: string | null = null;
+    let paths: Record<string, Array<string>> | null = null;
+    let outDir: string | null = null;
     if ("compilerOptions" in tsconfigObj) {
         const compilerOptions = tsconfigObj["compilerOptions"];
 
         if ("baseUrl" in compilerOptions) {
-            info.baseUrl = compilerOptions["baseUrl"] as string;
+            baseUrl = compilerOptions["baseUrl"] as string;
         }
-
         if ("paths" in compilerOptions) {
-            info.paths = compilerOptions["paths"] as Record<string, Array<string>>;
+            paths = compilerOptions["paths"] as Record<string, Array<string>>;
         }
-
         if ("outDir" in compilerOptions) {
-            info.outDir = compilerOptions["outDir"] as string;
+            outDir = compilerOptions["outDir"] as string;
         }
     }
 
-    return info;
+    return { baseUrl, paths, outDir };
 }
 
 function isFileInOutDir(uri: vscode.Uri, projects: Array<TypeScriptProject>): boolean {
@@ -307,11 +306,11 @@ function isFileInOutDir(uri: vscode.Uri, projects: Array<TypeScriptProject>): bo
 }
 
 function getAbsoluteOutDir(tsConfigJson: TsConfigJson): string | null {
-    if (tsConfigJson.outDir === undefined) return null;
+    if (tsConfigJson.value.outDir === null) return null;
 
-    return pathUtil.isAbsolute(tsConfigJson.outDir)
-        ? tsConfigJson.outDir
-        : pathUtil.resolve(tsConfigJson.rootPath, tsConfigJson.outDir);
+    return pathUtil.isAbsolute(tsConfigJson.value.outDir)
+        ? tsConfigJson.value.outDir
+        : pathUtil.resolve(tsConfigJson.rootPath, tsConfigJson.value.outDir);
 }
 
 function getWorkspaceFolderFromUri(uri: vscode.Uri): vscode.WorkspaceFolder | null {
