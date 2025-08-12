@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as pathUtil from "path";
 import * as _ from "lodash";
-import { CompletionItemMap } from "./completion_item_map";
+import { TsConfigJson } from "./completion_items_service";
 
 export type TsConfigInfo = {
     baseUrl?: string;
@@ -10,13 +10,9 @@ export type TsConfigInfo = {
 }
 
 export type TypeScriptProject = {
-    tsconfigPath: string;
-    rootPath: string;
+    tsConfigJson: TsConfigJson;
     workspaceFolder: vscode.WorkspaceFolder;
-    baseUrl?: string;
-    paths?: Record<string, Array<string>>;
-    outDir?: string;
-    completionItemsMap: CompletionItemMap;
+    completionItemsByQueryFirstChar: Map<string, Array<vscode.CompletionItem>>;
 }
 
 export function findProjectForFile(
@@ -26,12 +22,12 @@ export function findProjectForFile(
     const filePath = uri.path;
     
     // Find all projects that could contain this file
-    const candidateProjects = projects.filter(project => filePath.startsWith(project.rootPath));
+    const candidateProjects = projects.filter(project => filePath.startsWith(project.tsConfigJson.rootPath));
     if (candidateProjects.length === 0) return null;
 
     // Return the project with the deepest (most specific) root path
     return candidateProjects.reduce((deepest, current) => 
-        current.rootPath.length > deepest.rootPath.length ? current : deepest
+        current.tsConfigJson.rootPath.length > deepest.tsConfigJson.rootPath.length ? current : deepest
     );
 }
 
@@ -69,7 +65,7 @@ function uriToImportPathForProject(
     const uriRelativePath = pathUtil.relative(workspaceFolderPath, uri.path);
 
     // First try path mappings specific to this project
-    if (project.paths !== undefined) {
+    if (project.tsConfigJson.paths !== undefined) {
         const matchedPath = matchPathPatternForProject(uriRelativePath, project);
         if (matchedPath !== null) {
             return matchedPath.slice(0, matchedPath.length - pathUtil.extname(matchedPath).length);
@@ -77,23 +73,23 @@ function uriToImportPathForProject(
     }
 
     // Fall back to baseUrl resolution
-    if (project.baseUrl !== undefined) {
-        const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
-        const baseUrlPath = pathUtil.join(project.baseUrl, projectRelativePath);
+    if (project.tsConfigJson.baseUrl !== undefined) {
+        const projectRelativePath = pathUtil.relative(project.tsConfigJson.rootPath, uri.path);
+        const baseUrlPath = pathUtil.join(project.tsConfigJson.baseUrl, projectRelativePath);
         return baseUrlPath.slice(0, baseUrlPath.length - pathUtil.extname(baseUrlPath).length);
     }
 
     // Final fallback - relative to project root
-    const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
+    const projectRelativePath = pathUtil.relative(project.tsConfigJson.rootPath, uri.path);
     return projectRelativePath.slice(0, projectRelativePath.length - pathUtil.extname(projectRelativePath).length);
 }
 
 function matchPathPatternForProject(filePath: string, project: TypeScriptProject): string | null {
-    if (!project.paths) return null;
+    if (!project.tsConfigJson.paths) return null;
 
-    const projectRelativeRoot = pathUtil.relative(project.workspaceFolder.uri.path, project.rootPath);
+    const projectRelativeRoot = pathUtil.relative(project.workspaceFolder.uri.path, project.tsConfigJson.rootPath);
 
-    for (const [pattern, mappings] of Object.entries(project.paths)) {
+    for (const [pattern, mappings] of Object.entries(project.tsConfigJson.paths)) {
         for (const mapping of mappings) {
             // Resolve the mapping relative to the project's baseUrl (which is ".")
             let resolvedMapping = mapping;
@@ -103,7 +99,7 @@ function matchPathPatternForProject(filePath: string, project: TypeScriptProject
             } else if (mapping.startsWith("../")) {
                 // "../project1/src/*" gets resolved relative to current project
                 const workspaceRoot = project.workspaceFolder.uri.path;
-                const absoluteMapping = pathUtil.resolve(project.rootPath, mapping);
+                const absoluteMapping = pathUtil.resolve(project.tsConfigJson.rootPath, mapping);
                 resolvedMapping = pathUtil.relative(workspaceRoot, absoluteMapping);
             } else if (!pathUtil.isAbsolute(mapping)) {
                 resolvedMapping = pathUtil.join(projectRelativeRoot, mapping);
