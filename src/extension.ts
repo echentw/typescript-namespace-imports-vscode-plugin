@@ -1,39 +1,29 @@
-"use strict";
-import * as vscode from "vscode";
-import { CompletionItemsCache } from "./completion_items_cache";
-
-const openGraphQLTag = /gql`[^`]*$/;
+import * as vscode from 'vscode';
+import { CompletionItemsService } from './completion_items_cache';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (workspaceFolders === undefined) {
-        console.warn("No workspace folder. typescript-namespace-imports-vscode-plugin will not work");
+        console.warn('No workspace folder. typescript-namespace-imports-vscode-plugin will not work');
         return;
     }
 
-    const moduleCompletionItemsCache = CompletionItemsCache.make(workspaceFolders);
+    const service = CompletionItemsService.make(workspaceFolders);
 
     // Whenever there is a change to the workspace folders refresh the cache
-    const workspaceWatcher = vscode.workspace.onDidChangeWorkspaceFolders(
-        moduleCompletionItemsCache.handleWorkspaceChange
-    );
+    const workspaceWatcher = vscode.workspace.onDidChangeWorkspaceFolders(service.handleWorkspaceChangedAsync);
 
     // Whenever a file is added or removed refresh the cache
-    const fileSystemWatcher = vscode.workspace.createFileSystemWatcher(
-        "**/*.{ts,tsx}",
-        false,
-        true,
-        false
-    );
-    fileSystemWatcher.onDidCreate(moduleCompletionItemsCache.addFile);
-    fileSystemWatcher.onDidDelete(moduleCompletionItemsCache.deleteFile);
+    const fileSystemWatcher = vscode.workspace.createFileSystemWatcher('**/*.{ts,tsx}', false, true, false);
+    fileSystemWatcher.onDidCreate(service.handleFileCreatedAsync);
+    fileSystemWatcher.onDidDelete(service.handleFileDeleted);
 
     const provider = vscode.languages.registerCompletionItemProvider(
         [
-            { scheme: "file", language: "typescript" },
-            { scheme: "file", language: "typescriptreact" },
+            {scheme: 'file', language: 'typescript'},
+            {scheme: 'file', language: 'typescriptreact'},
         ],
         {
             provideCompletionItems(doc: vscode.TextDocument, position: vscode.Position) {
@@ -43,10 +33,8 @@ export function activate(context: vscode.ExtensionContext) {
                 if (wordRange === undefined || isInGraphQLTag(doc, position)) {
                     return new vscode.CompletionList([], true);
                 }
-
                 const word = doc.getText(wordRange);
-
-                return moduleCompletionItemsCache.getCompletionList(doc.uri, word);
+                return service.getCompletionList(doc.uri, word);
             },
         }
     );
@@ -82,3 +70,4 @@ function isInGraphQLTag(doc: vscode.TextDocument, position: vscode.Position): bo
     }
     return false;
 }
+const openGraphQLTag = /gql`[^`]*$/;

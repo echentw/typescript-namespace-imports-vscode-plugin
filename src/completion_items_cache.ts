@@ -11,40 +11,60 @@ type Workspace = {
     fileToProjectCache: Map<string, TypeScriptProject>;
 };
 
-export type CompletionItemsCache = {
-    handleWorkspaceChange: (event: vscode.WorkspaceFoldersChangeEvent) => void;
-    addFile: (uri: vscode.Uri) => void;
-    deleteFile: (uri: vscode.Uri) => void;
-    getCompletionList: (currentUri: vscode.Uri, query: string) => vscode.CompletionList | [];
+// type Workspace = {
+// 	tsProjectByPath: Map<TsProjectPath, TsProject>;
+// 	tsProjectPathByTsFilePath: Map<TsFilePath, TsProjectPath>;
+// };
+
+// type TsProject = {
+// 	completionItemsByQueryFirstChar: Map<Char, Array<vscode.CompletionItem>>;
+// 	tsConfigJson: TsConfigJson;
+// };
+
+// type TsConfigJson = {
+// 	paths: Record<string, string>;
+// 	baseUrl: string | null;
+// };
+
+type Char = string;
+type WorkspaceName = string;
+type TsFilePath = string; // relative to workspace root
+type TsProjectPath = string; // relative to workspace root
+
+export type CompletionItemsService = {
+    getCompletionList: (uri: vscode.Uri, query: string) => vscode.CompletionList | [];
+
+    handleWorkspaceChangedAsync: (event: vscode.WorkspaceFoldersChangeEvent) => Promise<void>;
+    handleFileCreatedAsync: (uri: vscode.Uri) => Promise<void>;
+    handleFileDeleted: (uri: vscode.Uri) => void;
 };
 
-export const CompletionItemsCache = {
-    make: (workspaceFolders: readonly vscode.WorkspaceFolder[]): CompletionItemsCache => {
-        return new CompletionItemsCacheImpl(workspaceFolders);
+export const CompletionItemsService = {
+    make: (workspaceFolders: readonly vscode.WorkspaceFolder[]): CompletionItemsService => {
+        return new CompletionItemsServiceImpl(workspaceFolders);
     },
 };
 
-/**
- * Creates a cache of module completion items backed by aa map that is split by the first character
- * of each module name
- *
- * TODO: Using this map makes intellisense quick even in large projects, but a more elegant
- * solution might be to implement some type of trie tree for CompletionItems
- */
-export class CompletionItemsCacheImpl implements CompletionItemsCache {
+// TODO: Using this map makes intellisense quick even in large projects, but a more elegant
+// solution might be to implement some type of trie tree for CompletionItems
+export class CompletionItemsServiceImpl implements CompletionItemsService {
     // Map from workspaceFolder.name -> cached workspace data
     private workspaceInfoByName: Record<string, Workspace> = {};
 
     constructor(workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>) {
-        workspaceFolders.forEach(this.addWorkspace);
+        workspaceFolders.forEach(this.addWorkspaceAsync);
     }
 
-    handleWorkspaceChange = (event: vscode.WorkspaceFoldersChangeEvent): void => {
-        event.added.forEach(this.addWorkspace);
-        event.removed.forEach(this.removeWorkspace);
+    handleWorkspaceChangedAsync = async (event: vscode.WorkspaceFoldersChangeEvent) => {
+        for (const workspace of event.added) {
+            await this.addWorkspaceAsync(workspace);
+        }
+        for (const workspace of event.removed) {
+            this.removeWorkspace(workspace);
+        }
     };
 
-    addFile = (uri: vscode.Uri) => {
+    handleFileCreatedAsync = async (uri: vscode.Uri) => {
         const workspaceFolder = getWorkspaceFolderFromUri(uri);
         if (workspaceFolder === null) return;
 
@@ -75,7 +95,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         workspace.fileToProjectCache.set(uri.path, ownerProject);
     };
 
-    deleteFile = (uri: vscode.Uri) => {
+    handleFileDeleted = (uri: vscode.Uri) => {
         const workspaceFolder = getWorkspaceFolderFromUri(uri);
         if (workspaceFolder === null) return;
 
@@ -93,8 +113,8 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         workspace.fileToProjectCache.delete(uri.path);
     };
 
-    getCompletionList = (currentUri: vscode.Uri, query: string): vscode.CompletionList | [] => {
-        const workspaceFolder = getWorkspaceFolderFromUri(currentUri);
+    getCompletionList = (uri: vscode.Uri, query: string): vscode.CompletionList | [] => {
+        const workspaceFolder = getWorkspaceFolderFromUri(uri);
         if (workspaceFolder === null) return [];
 
         const workspace = this.workspaceInfoByName[workspaceFolder.name];
@@ -103,9 +123,9 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
             return [];
         }
 
-        const currentProject = workspace.fileToProjectCache.get(currentUri.path) ?? findProjectForFile(currentUri, workspace);
+        const currentProject = workspace.fileToProjectCache.get(uri.path) ?? findProjectForFile(uri, workspace);
         if (currentProject === null) {
-            console.warn(`No TypeScript project found for current file: ${currentUri.path}`);
+            console.warn(`No TypeScript project found for current file: ${uri.path}`);
             return [];
         }
 
@@ -119,7 +139,7 @@ export class CompletionItemsCacheImpl implements CompletionItemsCache {
         delete this.workspaceInfoByName[workspaceFolder.name];
     };
 
-    private addWorkspace = async (workspaceFolder: vscode.WorkspaceFolder): Promise<void> => {
+    private addWorkspaceAsync = async (workspaceFolder: vscode.WorkspaceFolder): Promise<void> => {
         let projects: Array<TypeScriptProject>;
         try {
             projects = await discoverTypeScriptProjectsAsync(workspaceFolder);
