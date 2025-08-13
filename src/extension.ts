@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CompletionItemsService } from './completion_items_service';
+import {CompletionItemsService} from './completion_items_service';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -36,7 +36,7 @@ export function activate(context: vscode.ExtensionContext) {
                 const word = doc.getText(wordRange);
                 return service.getCompletionList(doc.uri, word);
             },
-        }
+        },
     );
 
     context.subscriptions.push(provider, fileSystemWatcher, workspaceWatcher);
@@ -56,7 +56,7 @@ function isInGraphQLTag(doc: vscode.TextDocument, position: vscode.Position): bo
     if (openGraphQLTag.test(textBeforeCursor)) {
         return true;
     }
-    if (textBeforeCursor.includes("`") || textBeforeCursor.includes(";")) {
+    if (textBeforeCursor.includes('`') || textBeforeCursor.includes(';')) {
         return false;
     }
     for (let i = position.line - 1; i >= 0; i--) {
@@ -64,7 +64,7 @@ function isInGraphQLTag(doc: vscode.TextDocument, position: vscode.Position): bo
         if (openGraphQLTag.test(line)) {
             return true;
         }
-        if (line.includes("`") || line.includes(";")) {
+        if (line.includes('`') || line.includes(';')) {
             return false;
         }
     }
