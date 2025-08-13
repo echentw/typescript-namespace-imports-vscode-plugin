@@ -272,14 +272,6 @@ async function discoverTsConfigJsonsAsync(
     );
 }
 
-function getItemPrefix(item: vscode.CompletionItem): string {
-    return typeof item.label === 'string' ? getPrefix(item.label) : getPrefix(item.label.label);
-
-    function getPrefix(query: string): string {
-        return query.substring(0, 1);
-    }
-}
-
 function parseTsConfigJson(tsconfigDoc: vscode.TextDocument): TsConfigJson {
     const parseResults = ts.parseConfigFileTextToJson(tsconfigDoc.fileName, tsconfigDoc.getText());
     const tsconfigObj = parseResults.config;
