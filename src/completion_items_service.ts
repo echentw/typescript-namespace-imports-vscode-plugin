@@ -26,11 +26,6 @@ type WorkspaceName = string;
 type TsFilePath = string;
 export type TsProjectPath = string;
 
-// type Workspace = {
-// 	tsProjectByPath: Map<TsProjectPath, TsProject>;
-// 	tsProjectPathByTsFilePath: Map<TsFilePath, TsProjectPath>;
-// };
-//
 // type TsProject = {
 // 	completionItemsByQueryFirstChar: Map<Char, Array<vscode.CompletionItem>>;
 // 	tsConfigJson: TsConfigJson;
@@ -135,6 +130,7 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
                 if (itemsInMap !== undefined) {
                     tsProject.completionItemsByQueryFirstChar.set(
                         u.firstChar(moduleName),
+                        // TODO: I think there's a bug here. We shouldn't be comparing by reference?
                         itemsInMap.filter(itemInMap => itemInMap !== completionItem),
                     );
                 }
