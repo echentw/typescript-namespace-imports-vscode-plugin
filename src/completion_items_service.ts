@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as u from './u';
-import {Result} from './u';
+import {q, Result} from './u';
 import * as uriHelpers from './uri_helpers';
 import * as pathUtil from 'path';
 import * as ts from 'typescript';
@@ -82,19 +82,12 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     handleFileCreatedAsync = async (uri: vscode.Uri) => {
-        const workspaceFolder = getWorkspaceFolderFromUri(uri);
-        if (workspaceFolder === null) return;
-
-        const workspace = this.workspaceByName.get(workspaceFolder.name);
-        if (workspace === undefined) {
-            console.error('Cannot add item: Workspace has not been cached');
+        const checkResult = this.checkChangedFileAndGetWorkspace(uri);
+        if (!checkResult.ok) {
+            console.warn(`handleFileDeleted: ${checkResult.err}`);
             return;
         }
-
-        // Skip files that are in node_modules and outDir folders
-        if (uri.path.includes('node_modules/') || isFileInOutDir(uri, workspace.tsProjectByPath)) {
-            return;
-        }
+        const workspace = checkResult.value;
 
         // Add file to all projects that can access it
         for (const [tsProjectPath, tsProject] of workspace.tsProjectByPath.entries()) {
@@ -115,16 +108,12 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     handleFileDeleted = (uri: vscode.Uri) => {
-        const workspaceFolder = getWorkspaceFolderFromUri(uri);
-        if (workspaceFolder === null) return;
-
-        const workspace = this.workspaceByName.get(workspaceFolder.name);
-        if (workspace === undefined) return;
-
-        // Skip files that are in node_modules and outDir folders
-        if (uri.path.includes('node_modules/') || isFileInOutDir(uri, workspace.tsProjectByPath)) {
+        const checkResult = this.checkChangedFileAndGetWorkspace(uri);
+        if (!checkResult.ok) {
+            console.warn(`handleFileDeleted: ${checkResult.err}`);
             return;
         }
+        const workspace = checkResult.value;
 
         // Remove file from all projects that had it cached
         for (const [tsProjectPath, tsProject] of workspace.tsProjectByPath.entries()) {
@@ -136,7 +125,7 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
                     tsProject.completionItemsByQueryFirstChar.set(
                         u.firstChar(moduleName),
                         // TODO: I think there's a bug here. We shouldn't be comparing by reference?
-                        itemsInMap.filter(itemInMap => itemInMap !== completionItem),
+                        itemsInMap.filter(itemInMap => itemInMap.detail !== completionItem.detail),
                     );
                 }
             }
@@ -146,14 +135,12 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     getCompletionList = (uri: vscode.Uri, query: string): vscode.CompletionList | [] => {
-        const workspaceFolder = getWorkspaceFolderFromUri(uri);
-        if (workspaceFolder === null) return [];
-
-        const workspace = this.workspaceByName.get(workspaceFolder.name);
-        if (workspace === undefined) {
-            console.warn('Workspace was not in cache');
+        const checkResult = this.checkChangedFileAndGetWorkspace(uri);
+        if (!checkResult.ok) {
+            console.warn(`getCompletionList: ${checkResult.err}`);
             return [];
         }
+        const workspace = checkResult.value;
 
         const currentProjectPath = workspace.ownerTsProjectPathByTsFilePath.get(uri.path) ?? null;
         if (currentProjectPath === null) {
@@ -166,6 +153,21 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         const items = currentProject.completionItemsByQueryFirstChar.get(u.firstChar(query)) ?? [];
         return new vscode.CompletionList(items, false);
     };
+
+    private checkChangedFileAndGetWorkspace(uri: vscode.Uri): Result<Workspace, string> {
+        const workspaceFolder = getWorkspaceFolderFromUri(uri);
+        if (workspaceFolder === null) return Result.err(`uri ${q(uri.path)}: failed to lookup workspace folder for uri`);
+
+        const workspace = this.workspaceByName.get(workspaceFolder.name);
+        if (workspace === undefined) return Result.err(`uri ${q(uri.path)}: workspace ${q(workspaceFolder.name)} not found in this.workspaceByName`);
+
+        // Skip files that are in node_modules and outDir folders
+        if (uri.path.includes('node_modules/') || isFileInOutDir(uri, workspace.tsProjectByPath)) {
+            return Result.err(`uri ${q(uri.path)}: skipping because in node_modules/ or compilerOptions.outDir`);
+        }
+
+        return Result.ok(workspace);
+    }
 }
 
 async function makeWorkspaceAsync(

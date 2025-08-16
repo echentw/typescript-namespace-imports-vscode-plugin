@@ -14,6 +14,10 @@ class ResultErr<ErrT> {
     constructor(public readonly err: ErrT) {}
 }
 
+export function q(s: string): string {
+    return JSON.stringify(s);
+}
+
 export function fireAndForget(fnAsync: () => Promise<void>): void {
     fnAsync();
 }
