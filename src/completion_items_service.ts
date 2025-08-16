@@ -121,6 +121,11 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         const workspace = this.workspaceByName.get(workspaceFolder.name);
         if (workspace === undefined) return;
 
+        // Skip files that are in node_modules and outDir folders
+        if (uri.path.includes('node_modules/') || isFileInOutDir(uri, workspace.tsProjectByPath)) {
+            return;
+        }
+
         // Remove file from all projects that had it cached
         for (const [tsProjectPath, tsProject] of workspace.tsProjectByPath.entries()) {
             const value = uriHelpers.makeModuleNameAndCompletionItem(tsProjectPath, tsProject, uri);
@@ -197,7 +202,6 @@ async function makeWorkspaceAsync(
             },
         ])
     );
-    const ownerTsProjectPathByTsFilePath = new Map<TsFilePath, TsProjectPath>();
 
     // Add each file to all projects that can access it via their path mappings
     for (const [tsProjectPath, tsProject] of tsProjectByPath) {
@@ -205,17 +209,19 @@ async function makeWorkspaceAsync(
             const value = uriHelpers.makeModuleNameAndCompletionItem(tsProjectPath, tsProject, uri);
             if (value !== null) {
                 // Only add the file if it can be imported from this project
-
                 const [moduleName, completionItem] = value;
                 u.map.getOrCreate(tsProject.completionItemsByQueryFirstChar, u.firstChar(moduleName), () => [])
                     .push(completionItem);
-
-                // For file-to-project cache, use the project that physically contains the file
-                const ownerProjectPath = uriHelpers.findOwnerTsProjectForTsFile(uri, tsProjectByPath.keys());
-                if (ownerProjectPath !== null) {
-                    ownerTsProjectPathByTsFilePath.set(uri.path, ownerProjectPath);
-                }
             }
+        }
+    }
+
+    const ownerTsProjectPathByTsFilePath = new Map<TsFilePath, TsProjectPath>();
+    for (const uri of uris) {
+        // For file-to-project cache, use the project that physically contains the file
+        const ownerTsProjectPath = uriHelpers.findOwnerTsProjectForTsFile(uri, tsProjectByPath.keys());
+        if (ownerTsProjectPath !== null) {
+            ownerTsProjectPathByTsFilePath.set(uri.path, ownerTsProjectPath);
         }
     }
 
