@@ -57,24 +57,20 @@ function makeImportPath(
     tsProject: TsProject,
     moduleUri: vscode.Uri,
 ): string | null {
-    // First try path mappings specific to this project
-    if (tsProject.tsConfigJson.paths !== null) {
-        const matchedPath = matchPathPatternForProject(tsProjectPath, tsProject, moduleUri);
-        if (matchedPath !== null) {
-            return matchedPath.slice(0, matchedPath.length - pathUtil.extname(matchedPath).length);
+    const matchedPath = matchPathPatternForProject(tsProjectPath, tsProject, moduleUri);
+    if (matchedPath !== null) {
+        return u.pathWithoutExt(matchedPath);
+    }
+
+    if (tsProject.tsConfigJson.baseUrl !== null) {
+        const baseUrlPath = pathUtil.resolve(tsProjectPath, tsProject.tsConfigJson.baseUrl);
+        if (moduleUri.path.startsWith(baseUrlPath)) {
+            const moduleRelativePath = pathUtil.relative(baseUrlPath, moduleUri.path);
+            return u.pathWithoutExt(moduleRelativePath);
         }
     }
 
-    // Fall back to baseUrl resolution
-    if (tsProject.tsConfigJson.baseUrl !== null) {
-        const projectRelativePath = pathUtil.relative(tsProjectPath, moduleUri.path);
-        const baseUrlPath = pathUtil.join(tsProject.tsConfigJson.baseUrl, projectRelativePath);
-        return baseUrlPath.slice(0, baseUrlPath.length - pathUtil.extname(baseUrlPath).length);
-    }
-
-    // Final fallback - relative to project root
-    const projectRelativePath = pathUtil.relative(tsProjectPath, moduleUri.path);
-    return projectRelativePath.slice(0, projectRelativePath.length - pathUtil.extname(projectRelativePath).length);
+    return null;
 }
 
 function matchPathPatternForProject(
