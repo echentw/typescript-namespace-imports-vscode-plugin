@@ -120,11 +120,10 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
             const value = uriHelpers.makeModuleNameAndCompletionItem(tsProjectPath, tsProject, uri);
             if (value !== null) {
                 const [moduleName, completionItem] = value;
-                const itemsInMap = tsProject.completionItemsByQueryFirstChar.get(moduleName);
+                const itemsInMap = tsProject.completionItemsByQueryFirstChar.get(u.firstChar(moduleName));
                 if (itemsInMap !== undefined) {
                     tsProject.completionItemsByQueryFirstChar.set(
                         u.firstChar(moduleName),
-                        // TODO: I think there's a bug here. We shouldn't be comparing by reference?
                         itemsInMap.filter(itemInMap => itemInMap.detail !== completionItem.detail),
                     );
                 }

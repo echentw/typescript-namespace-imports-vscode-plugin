@@ -32,13 +32,18 @@ export function makeModuleNameAndCompletionItem(
     if (importPath === null) return null;
 
     const completionItem = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);
-    completionItem.detail = importPath;
+
+    // Right now the code in `.handleFileDeleted` relies on `.detail`
+    // being a unique identifier for this module for this particular TS project.
+    completionItem.detail = moduleName;
+
     completionItem.additionalTextEdits = [
         vscode.TextEdit.insert(
             new vscode.Position(0, 0),
             `import * as ${moduleName} from '${importPath}';\n`,
         ),
     ];
+
     return [moduleName, completionItem];
 }
 
