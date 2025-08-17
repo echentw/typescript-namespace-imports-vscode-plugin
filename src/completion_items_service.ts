@@ -6,6 +6,7 @@ import * as pathUtil from 'path';
 import * as ts from 'typescript';
 
 type Workspace = {
+    workspaceFolder: vscode.WorkspaceFolder;
     tsProjectByPath: Map<TsProjectPath, TsProject>;
     ownerTsProjectPathByTsFilePath: Map<TsFilePath, TsProjectPath>;
 };
@@ -36,11 +37,12 @@ export type CompletionItemsService = {
 
     handleWorkspaceChangedAsync: (event: vscode.WorkspaceFoldersChangeEvent) => Promise<void>;
     handleFileCreatedAsync: (uri: vscode.Uri) => Promise<void>;
-    handleFileDeleted: (uri: vscode.Uri) => void;
+    handleFileDeletedAsync: (uri: vscode.Uri) => Promise<void>;
+    handleFileChangedAsync: (uri: vscode.Uri) => Promise<void>;
 };
 
 export const CompletionItemsService = {
-    make: (workspaceFolders: readonly vscode.WorkspaceFolder[]): CompletionItemsService => {
+    make: (workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>): CompletionItemsService => {
         return new CompletionItemsServiceImpl(workspaceFolders);
     },
 };
@@ -55,8 +57,14 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         this.workspaceByName = new Map();
 
         u.fireAndForget(async () => {
-            await updateWorkspaceByNameInPlaceAsync(this.workspaceByName, workspaceFolders, []);
+            await this.resetAsync(workspaceFolders);
         });
+    }
+
+    private resetAsync = async (workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>): Promise<void> => {
+        const workspaceByName = new Map<WorkspaceName, Workspace>();
+        await updateWorkspaceByNameInPlaceAsync(workspaceByName, workspaceFolders, []);
+        this.workspaceByName = workspaceByName;
     }
 
     handleWorkspaceChangedAsync = async (event: vscode.WorkspaceFoldersChangeEvent) => {
@@ -64,9 +72,17 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     handleFileCreatedAsync = async (uri: vscode.Uri) => {
+        console.log(`file created: ${uri.path}`);
+        if (pathUtil.basename(uri.path) === 'tsconfig.json') {
+            await this.resetAsync(
+                Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
+            );
+            return;
+        }
+
         const checkResult = this.checkChangedFileAndGetWorkspace(uri);
         if (!checkResult.ok) {
-            console.warn(`handleFileDeleted: ${checkResult.err}`);
+            console.warn(`handleFileCreated: ${checkResult.err}`);
             return;
         }
         const workspace = checkResult.value;
@@ -89,7 +105,15 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         workspace.ownerTsProjectPathByTsFilePath.set(uri.path, ownerTsProjectPath);
     };
 
-    handleFileDeleted = (uri: vscode.Uri) => {
+    handleFileDeletedAsync = async (uri: vscode.Uri) => {
+        console.log(`file deleted: ${uri.path}`);
+        if (pathUtil.basename(uri.path) === 'tsconfig.json') {
+            await this.resetAsync(
+                Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
+            );
+            return;
+        }
+
         const checkResult = this.checkChangedFileAndGetWorkspace(uri);
         if (!checkResult.ok) {
             console.warn(`handleFileDeleted: ${checkResult.err}`);
@@ -113,6 +137,15 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         }
 
         workspace.ownerTsProjectPathByTsFilePath.delete(uri.path);
+    };
+
+    handleFileChangedAsync = async (uri: vscode.Uri): Promise<void> => {
+        console.log(`changed: ${uri.path}`)
+        if (pathUtil.basename(uri.path) === 'tsconfig.json') {
+            await this.resetAsync(
+                Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
+            );
+        }
     };
 
     getCompletionList = (uri: vscode.Uri, query: string): vscode.CompletionList | [] => {
@@ -228,6 +261,7 @@ async function makeWorkspaceAsync(
     }
 
     const workspace: Workspace = {
+        workspaceFolder,
         tsProjectByPath,
         ownerTsProjectPathByTsFilePath,
     };
