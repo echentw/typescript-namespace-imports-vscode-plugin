@@ -23,7 +23,6 @@
         "build": "npm run -S esbuild-base -- --sourcemap",
         "watch": "npm run -S esbuild-base -- --sourcemap --watch",
         "lint": "eslint . --ext .ts",
-        "format": "prettier --write src/*.ts src/**/*.ts",
         "tsc-watch": "tsc --watch",
         "tsc-build": "tsc"
     },
@@ -34,9 +33,7 @@
         "@typescript-eslint/eslint-plugin": "^5.9.0",
         "@typescript-eslint/parser": "^5.9.0",
         "esbuild": "^0.14.11",
-        "eslint": "^8.6.0",
-        "eslint-config-prettier": "^8.3.0",
-        "prettier": "^2.5.1"
+        "eslint": "^8.6.0"
     },
     "dependencies": {
         "lodash": "^4.17.21",

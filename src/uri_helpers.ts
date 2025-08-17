@@ -1,99 +1,95 @@
-import * as vscode from "vscode";
-import * as pathUtil from "path";
-import * as _ from "lodash";
-import { CompletionItemMap } from "./completion_item_map";
+import * as vscode from 'vscode';
+import * as pathUtil from 'path';
+import * as _ from 'lodash';
+import * as u from './u';
+import {TsProject, TsProjectPath} from './completion_items_service';
 
-export type TsConfigInfo = {
-    baseUrl?: string;
-    paths?: Record<string, Array<string>>;
-    outDir?: string;
-}
-
-export type TypeScriptProject = {
-    tsconfigPath: string;
-    rootPath: string;
-    workspaceFolder: vscode.WorkspaceFolder;
-    baseUrl?: string;
-    paths?: Record<string, Array<string>>;
-    outDir?: string;
-    completionItemsMap: CompletionItemMap;
-}
-
-export function findProjectForFile(
+export function findOwnerTsProjectForTsFile(
     uri: vscode.Uri,
-    projects: Array<TypeScriptProject>,
-): TypeScriptProject | null {
-    const filePath = uri.path;
-    
+    tsProjectPaths: Iterable<TsProjectPath>,
+): TsProjectPath | null {
     // Find all projects that could contain this file
-    const candidateProjects = projects.filter(project => filePath.startsWith(project.rootPath));
-    if (candidateProjects.length === 0) return null;
+    const candidates = u.iter.filter(tsProjectPaths, tsProjectPath => uri.path.startsWith(tsProjectPath));
+    if (candidates.length === 0) return null;
 
     // Return the project with the deepest (most specific) root path
-    return candidateProjects.reduce((deepest, current) => 
-        current.rootPath.length > deepest.rootPath.length ? current : deepest
-    );
+    return u.max(candidates, u.cmp.transform(path => path.length, u.cmp.number));
 }
 
-export function uriToCompletionItemForProject(
-    uri: vscode.Uri,
-    project: TypeScriptProject,
-): vscode.CompletionItem | null {
-    const moduleName = uriToModuleName(uri);
-    const importPath = uriToImportPathForProject(uri, project);
+// TODO: Looks like TsProject is needed to get the workspaceFolder.
+// Could we just pass the workspaceFolder directly in as a separate parameter?
+// Then we could... pass in tsConfigJson instead of TsProject, and remove the 'workspaceFolder' property
+// from TsProject potentially.
+export function makeModuleNameAndCompletionItem(
+    tsProjectPath: TsProjectPath,
+    tsProject: TsProject,
+    moduleUri: vscode.Uri,
+): [string, vscode.CompletionItem] | null {
+    const moduleName = makeModuleName(moduleUri);
+    const importPath = makeImportPath(tsProjectPath, tsProject, moduleUri);
     
     // Return null if this file can't be imported from this project
     if (importPath === null) return null;
 
     const completionItem = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);
-    completionItem.detail = importPath;
+
+    // Right now the code in `.handleFileDeleted` relies on `.detail`
+    // being a unique identifier for this module for this particular TS project.
+    completionItem.detail = moduleName;
+
     completionItem.additionalTextEdits = [
         vscode.TextEdit.insert(
             new vscode.Position(0, 0),
             `import * as ${moduleName} from '${importPath}';\n`,
         ),
     ];
-    return completionItem;
+
+    return [moduleName, completionItem];
 }
 
-function uriToModuleName(uri: vscode.Uri): string {
-    const fileName = pathUtil.basename(uri.path, uri.path.endsWith("ts") ? ".ts" : ".tsx");
+function makeModuleName(uri: vscode.Uri): string {
+    const fileName = pathUtil.basename(uri.path, uri.path.endsWith('ts') ? '.ts' : '.tsx');
     return _.camelCase(fileName);
 }
 
-function uriToImportPathForProject(
-    uri: vscode.Uri,
-    project: TypeScriptProject
+function makeImportPath(
+    tsProjectPath: TsProjectPath,
+    tsProject: TsProject,
+    moduleUri: vscode.Uri,
 ): string | null {
-    const workspaceFolderPath = project.workspaceFolder.uri.path;
-    const uriRelativePath = pathUtil.relative(workspaceFolderPath, uri.path);
+    const workspaceFolderPath = tsProject.workspaceFolder.uri.path;
+    const uriRelativePath = pathUtil.relative(workspaceFolderPath, moduleUri.path);
 
     // First try path mappings specific to this project
-    if (project.paths !== undefined) {
-        const matchedPath = matchPathPatternForProject(uriRelativePath, project);
+    if (tsProject.tsConfigJson.paths !== undefined) {
+        const matchedPath = matchPathPatternForProject(tsProjectPath, tsProject, uriRelativePath);
         if (matchedPath !== null) {
             return matchedPath.slice(0, matchedPath.length - pathUtil.extname(matchedPath).length);
         }
     }
 
     // Fall back to baseUrl resolution
-    if (project.baseUrl !== undefined) {
-        const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
-        const baseUrlPath = pathUtil.join(project.baseUrl, projectRelativePath);
+    if (tsProject.tsConfigJson.baseUrl !== null) {
+        const projectRelativePath = pathUtil.relative(tsProjectPath, moduleUri.path);
+        const baseUrlPath = pathUtil.join(tsProject.tsConfigJson.baseUrl, projectRelativePath);
         return baseUrlPath.slice(0, baseUrlPath.length - pathUtil.extname(baseUrlPath).length);
     }
 
     // Final fallback - relative to project root
-    const projectRelativePath = pathUtil.relative(project.rootPath, uri.path);
+    const projectRelativePath = pathUtil.relative(tsProjectPath, moduleUri.path);
     return projectRelativePath.slice(0, projectRelativePath.length - pathUtil.extname(projectRelativePath).length);
 }
 
-function matchPathPatternForProject(filePath: string, project: TypeScriptProject): string | null {
-    if (!project.paths) return null;
+function matchPathPatternForProject(
+    tsProjectPath: TsProjectPath,
+    tsProject: TsProject,
+    moduleRelativePath: string,
+): string | null {
+    if (!tsProject.tsConfigJson.paths) return null;
 
-    const projectRelativeRoot = pathUtil.relative(project.workspaceFolder.uri.path, project.rootPath);
+    const projectRelativeRoot = pathUtil.relative(tsProject.workspaceFolder.uri.path, tsProjectPath);
 
-    for (const [pattern, mappings] of Object.entries(project.paths)) {
+    for (const [pattern, mappings] of Object.entries(tsProject.tsConfigJson.paths)) {
         for (const mapping of mappings) {
             // Resolve the mapping relative to the project's baseUrl (which is ".")
             let resolvedMapping = mapping;
@@ -102,8 +98,8 @@ function matchPathPatternForProject(filePath: string, project: TypeScriptProject
                 resolvedMapping = pathUtil.join(projectRelativeRoot, mapping.slice(2));
             } else if (mapping.startsWith("../")) {
                 // "../project1/src/*" gets resolved relative to current project
-                const workspaceRoot = project.workspaceFolder.uri.path;
-                const absoluteMapping = pathUtil.resolve(project.rootPath, mapping);
+                const workspaceRoot = tsProject.workspaceFolder.uri.path;
+                const absoluteMapping = pathUtil.resolve(tsProjectPath, mapping);
                 resolvedMapping = pathUtil.relative(workspaceRoot, absoluteMapping);
             } else if (!pathUtil.isAbsolute(mapping)) {
                 resolvedMapping = pathUtil.join(projectRelativeRoot, mapping);
@@ -114,7 +110,7 @@ function matchPathPatternForProject(filePath: string, project: TypeScriptProject
                 // Create regex from mapping (right side) to match against file path
                 const mappingRegex = resolvedMapping.replace(/\*/g, "(.*)");
                 const regex = new RegExp(`^${mappingRegex}$`);
-                const match = filePath.match(regex);
+                const match = moduleRelativePath.match(regex);
 
                 if (match && match[1] !== undefined) {
                     // Replace wildcard in pattern (left side) with matched content
@@ -123,8 +119,8 @@ function matchPathPatternForProject(filePath: string, project: TypeScriptProject
             }
             // Handle exact matches (no wildcards)
             else if (!pattern.includes("*") && !resolvedMapping.includes("*")) {
-                if (filePath.startsWith(resolvedMapping)) {
-                    const relativePath = pathUtil.relative(resolvedMapping, filePath);
+                if (moduleRelativePath.startsWith(resolvedMapping)) {
+                    const relativePath = pathUtil.relative(resolvedMapping, moduleRelativePath);
                     return relativePath ? pathUtil.join(pattern, relativePath) : pattern;
                 }
             }
