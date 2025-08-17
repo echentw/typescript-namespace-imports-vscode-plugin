@@ -55,30 +55,12 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         this.workspaceByName = new Map();
 
         u.fireAndForget(async () => {
-            for (const folder of workspaceFolders) {
-                const result = await makeWorkspaceAsync(folder);
-                if (result.ok) {
-                    this.workspaceByName.set(folder.name, result.value);
-                } else {
-                    console.warn(result.err);
-                }
-            }
-            console.log('this.workspaceByName', u.stringify(this.workspaceByName))
+            await updateWorkspaceByNameInPlaceAsync(this.workspaceByName, workspaceFolders, []);
         });
     }
 
     handleWorkspaceChangedAsync = async (event: vscode.WorkspaceFoldersChangeEvent) => {
-        for (const folder of event.added) {
-            const result = await makeWorkspaceAsync(folder);
-            if (result.ok) {
-                this.workspaceByName.set(folder.name, result.value);
-            } else {
-                console.warn(result.err);
-            }
-        }
-        for (const folder of event.removed) {
-            this.workspaceByName.delete(folder.name);
-        }
+        await updateWorkspaceByNameInPlaceAsync(this.workspaceByName, event.added, event.removed);
     };
 
     handleFileCreatedAsync = async (uri: vscode.Uri) => {
@@ -167,6 +149,25 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
 
         return Result.ok(workspace);
     }
+}
+
+async function updateWorkspaceByNameInPlaceAsync(
+    workspaceByName: Map<WorkspaceName, Workspace>,
+    foldersToAdd: ReadonlyArray<vscode.WorkspaceFolder>,
+    foldersToDelete: ReadonlyArray<vscode.WorkspaceFolder>,
+): Promise<void> {
+    for (const folder of foldersToAdd) {
+        const result = await makeWorkspaceAsync(folder);
+        if (result.ok) {
+            workspaceByName.set(folder.name, result.value);
+        } else {
+            console.warn(result.err);
+        }
+    }
+    for (const folder of foldersToDelete) {
+        workspaceByName.delete(folder.name);
+    }
+    console.log('workspaceByName', u.stringify(workspaceByName));
 }
 
 async function makeWorkspaceAsync(

@@ -1,3 +1,5 @@
+import * as pathUtil from 'path';
+
 export type Result<OkT, ErrT> = ResultOk<OkT> | ResultErr<ErrT>;
 export const Result = {
     ok: <OkT>(value: OkT) => new ResultOk(value),
@@ -60,6 +62,10 @@ export function max<T>(items: Array<T>, compareFn: cmp.CompareFn<T>): T {
 
 export function sort<T>(items: Array<T>, compareFn: cmp.CompareFn<T>): Array<T> {
     return items.slice().sort(compareFn);
+}
+
+export function pathWithoutExt(path: string): string {
+    return path.slice(0, path.length - pathUtil.extname(path).length);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-namespace

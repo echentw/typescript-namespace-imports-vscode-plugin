@@ -57,72 +57,51 @@ function makeImportPath(
     tsProject: TsProject,
     moduleUri: vscode.Uri,
 ): string | null {
-    const workspaceFolderPath = tsProject.workspaceFolder.uri.path;
-    const uriRelativePath = pathUtil.relative(workspaceFolderPath, moduleUri.path);
+    const matchedPath = matchPathPatternForProject(tsProjectPath, tsProject, moduleUri);
+    if (matchedPath !== null) {
+        return u.pathWithoutExt(matchedPath);
+    }
 
-    // First try path mappings specific to this project
-    if (tsProject.tsConfigJson.paths !== undefined) {
-        const matchedPath = matchPathPatternForProject(tsProjectPath, tsProject, uriRelativePath);
-        if (matchedPath !== null) {
-            return matchedPath.slice(0, matchedPath.length - pathUtil.extname(matchedPath).length);
+    if (tsProject.tsConfigJson.baseUrl !== null) {
+        const baseUrlPath = pathUtil.resolve(tsProjectPath, tsProject.tsConfigJson.baseUrl);
+        if (moduleUri.path.startsWith(baseUrlPath)) {
+            const moduleRelativePath = pathUtil.relative(baseUrlPath, moduleUri.path);
+            return u.pathWithoutExt(moduleRelativePath);
         }
     }
 
-    // Fall back to baseUrl resolution
-    if (tsProject.tsConfigJson.baseUrl !== null) {
-        const projectRelativePath = pathUtil.relative(tsProjectPath, moduleUri.path);
-        const baseUrlPath = pathUtil.join(tsProject.tsConfigJson.baseUrl, projectRelativePath);
-        return baseUrlPath.slice(0, baseUrlPath.length - pathUtil.extname(baseUrlPath).length);
-    }
-
-    // Final fallback - relative to project root
-    const projectRelativePath = pathUtil.relative(tsProjectPath, moduleUri.path);
-    return projectRelativePath.slice(0, projectRelativePath.length - pathUtil.extname(projectRelativePath).length);
+    return null;
 }
 
 function matchPathPatternForProject(
     tsProjectPath: TsProjectPath,
     tsProject: TsProject,
-    moduleRelativePath: string,
+    moduleUri: vscode.Uri,
 ): string | null {
     if (!tsProject.tsConfigJson.paths) return null;
 
-    const projectRelativeRoot = pathUtil.relative(tsProject.workspaceFolder.uri.path, tsProjectPath);
+    const workspaceFolderPath = tsProject.workspaceFolder.uri.path;
+    const moduleRelativePath = pathUtil.relative(workspaceFolderPath, moduleUri.path);
+
+    const baseUrl = tsProject.tsConfigJson.baseUrl ?? ".";
+    const basePath = pathUtil.resolve(tsProjectPath, baseUrl);
 
     for (const [pattern, mappings] of Object.entries(tsProject.tsConfigJson.paths)) {
         for (const mapping of mappings) {
-            // Resolve the mapping relative to the project's baseUrl (which is ".")
-            let resolvedMapping = mapping;
-            if (mapping.startsWith("./")) {
-                // "./src/*" becomes "project1/src/*" when project is at "project1/"
-                resolvedMapping = pathUtil.join(projectRelativeRoot, mapping.slice(2));
-            } else if (mapping.startsWith("../")) {
-                // "../project1/src/*" gets resolved relative to current project
-                const workspaceRoot = tsProject.workspaceFolder.uri.path;
-                const absoluteMapping = pathUtil.resolve(tsProjectPath, mapping);
-                resolvedMapping = pathUtil.relative(workspaceRoot, absoluteMapping);
-            } else if (!pathUtil.isAbsolute(mapping)) {
-                resolvedMapping = pathUtil.join(projectRelativeRoot, mapping);
-            }
+            const resolvedMapping = pathUtil.resolve(basePath, mapping);
+            const workspaceRelativeMapping = pathUtil.relative(workspaceFolderPath, resolvedMapping);
 
-            // Handle wildcard patterns like "project1/*" -> "project1/src/*"
-            if (pattern.includes("*") && resolvedMapping.includes("*")) {
-                // Create regex from mapping (right side) to match against file path
-                const mappingRegex = resolvedMapping.replace(/\*/g, "(.*)");
-                const regex = new RegExp(`^${mappingRegex}$`);
-                const match = moduleRelativePath.match(regex);
-
-                if (match && match[1] !== undefined) {
-                    // Replace wildcard in pattern (left side) with matched content
-                    return pattern.replace(/\*/g, match[1]);
+            if (pattern.includes("*")) {
+                // Handle wildcard: "src/*" matches "src/components/Button"
+                const patternPrefix = pattern.replace("*", "");
+                const mappingPrefix = workspaceRelativeMapping.replace("*", "");
+                
+                if (moduleRelativePath.startsWith(mappingPrefix)) {
+                    const suffix = moduleRelativePath.slice(mappingPrefix.length);
+                    return patternPrefix + suffix;
                 }
-            }
-            // Handle exact matches (no wildcards)
-            else if (!pattern.includes("*") && !resolvedMapping.includes("*")) {
-                if (moduleRelativePath.startsWith(resolvedMapping)) {
-                    const relativePath = pathUtil.relative(resolvedMapping, moduleRelativePath);
-                    return relativePath ? pathUtil.join(pattern, relativePath) : pattern;
-                }
+            } else if (moduleRelativePath === workspaceRelativeMapping) {
+                return pattern;
             }
         }
     }
