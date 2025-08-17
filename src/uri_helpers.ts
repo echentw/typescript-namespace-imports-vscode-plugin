@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as pathUtil from 'path';
 import * as _ from 'lodash';
 import * as u from './u';
-import {TsProject, TsProjectPath} from './completion_items_service';
+import {TsConfigJson, TsProject, TsProjectPath} from './completion_items_service';
 
 export function findOwnerTsProjectForTsFile(
     uri: vscode.Uri,
@@ -66,7 +66,10 @@ function makeImportPath(
         const baseUrlPath = pathUtil.resolve(tsProjectPath, tsProject.tsConfigJson.baseUrl);
         if (moduleUri.path.startsWith(baseUrlPath)) {
             const moduleRelativePath = pathUtil.relative(baseUrlPath, moduleUri.path);
-            return u.pathWithoutExt(moduleRelativePath);
+
+            if (!doesImportPathViaBaseUrlConflictWithPathsMapping(moduleRelativePath, tsProject.tsConfigJson)) {
+                return u.pathWithoutExt(moduleRelativePath);
+            }
         }
     }
 
@@ -91,11 +94,11 @@ function matchPathPatternForProject(
             const resolvedMapping = pathUtil.resolve(basePath, mapping);
             const workspaceRelativeMapping = pathUtil.relative(workspaceFolderPath, resolvedMapping);
 
-            if (pattern.includes("*")) {
+            if (pattern.includes('*')) {
                 // Handle wildcard: "src/*" matches "src/components/Button"
-                const patternPrefix = pattern.replace("*", "");
-                const mappingPrefix = workspaceRelativeMapping.replace("*", "");
-                
+                const patternPrefix = pattern.replace('*', '');
+                const mappingPrefix = workspaceRelativeMapping.replace('*', '');
+
                 if (moduleRelativePath.startsWith(mappingPrefix)) {
                     const suffix = moduleRelativePath.slice(mappingPrefix.length);
                     return patternPrefix + suffix;
@@ -107,4 +110,22 @@ function matchPathPatternForProject(
     }
 
     return null;
+}
+
+function doesImportPathViaBaseUrlConflictWithPathsMapping(
+    moduleRelativePath: string,
+    tsConfigJson: TsConfigJson,
+): boolean {
+    if (tsConfigJson.paths === null) return false;
+
+    // Make sure this doesn't conflict with `paths`
+    for (let pattern of Object.keys(tsConfigJson.paths)) {
+        if (pattern.includes('*')) {
+            pattern = pattern.replace('*', '');
+        }
+        if (moduleRelativePath.startsWith(pattern)) {
+            return true;
+        }
+    }
+    return false;
 }
