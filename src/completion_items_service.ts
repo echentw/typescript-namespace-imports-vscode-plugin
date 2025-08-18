@@ -78,7 +78,6 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     handleFileCreatedAsync = async (uri: vscode.Uri) => {
-        console.log(`file created: ${uri.path}`);
         if (pathUtil.basename(uri.path) === 'tsconfig.json') {
             await this.resetAsync(
                 Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
@@ -123,7 +122,6 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     handleFileDeletedAsync = async (uri: vscode.Uri) => {
-        console.log(`file deleted: ${uri.path}`);
         if (pathUtil.basename(uri.path) === 'tsconfig.json') {
             await this.resetAsync(
                 Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
@@ -173,7 +171,6 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     handleFileChangedAsync = async (uri: vscode.Uri): Promise<void> => {
-        console.log(`changed: ${uri.path}`)
         if (pathUtil.basename(uri.path) === 'tsconfig.json') {
             await this.resetAsync(
                 Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
@@ -203,8 +200,11 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         const currentFileDirPath = pathUtil.dirname(uri.path);
 
         const relativeImportItems = modulesForRelativeImport.map(module => {
-            const importPath = pathUtil.relative(currentFileDirPath, module.tsFilePath);
-            return uriHelpers.makeCompletionItem(module.moduleName, importPath);
+            let importPath = pathUtil.relative(currentFileDirPath, module.tsFilePath);
+            if (!importPath.startsWith('..')) {
+                importPath = './' + importPath;
+            }
+            return uriHelpers.makeCompletionItem(module.moduleName, u.pathWithoutExt(importPath));
         });
 
         return new vscode.CompletionList([...bareImportItems, ...relativeImportItems], false);
