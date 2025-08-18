@@ -49,6 +49,10 @@ export function assert(value: boolean, msg?: string): asserts value {
     }
 }
 
+export function impossible(value: never): never {
+    throw new Error(`impossible according to static types: ${value}`);
+}
+
 export function max<T>(items: Array<T>, compareFn: cmp.CompareFn<T>): T {
     assert(items.length > 0);
     let current = items[0];

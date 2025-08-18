@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as pathUtil from 'path';
 import * as _ from 'lodash';
 import * as u from './u';
-import {TsConfigJson, TsProject, TsProjectPath} from './completion_items_service';
+import {TsConfigJson, TsFilePath, TsProject, TsProjectPath} from './completion_items_service';
 
 export function findOwnerTsProjectForTsFile(
     uri: vscode.Uri,
@@ -16,21 +16,46 @@ export function findOwnerTsProjectForTsFile(
     return u.max(candidates, u.cmp.transform(path => path.length, u.cmp.number));
 }
 
+type ModuleEvaluationForTsProject =
+    | {type: 'bareImport'; moduleName: string; completionItem: vscode.CompletionItem}
+    | {type: 'relativeImport'; moduleName: string; tsFilePath: TsFilePath}
+    | {type: 'importDisallowed'};
+
 // TODO: Looks like TsProject is needed to get the workspaceFolder.
 // Could we just pass the workspaceFolder directly in as a separate parameter?
 // Then we could... pass in tsConfigJson instead of TsProject, and remove the 'workspaceFolder' property
 // from TsProject potentially.
-export function makeModuleNameAndCompletionItem(
+export function evaluateModuleForTsProject(
     tsProjectPath: TsProjectPath,
     tsProject: TsProject,
     moduleUri: vscode.Uri,
-): [string, vscode.CompletionItem] | null {
+): ModuleEvaluationForTsProject {
     const moduleName = makeModuleName(moduleUri);
-    const importPath = makeImportPath(tsProjectPath, tsProject, moduleUri);
-    
-    // Return null if this file can't be imported from this project
-    if (importPath === null) return null;
 
+    const bareImportPath = makeBareImportPath(tsProjectPath, tsProject, moduleUri);
+    if (bareImportPath !== null) {
+        return {
+            type: 'bareImport',
+            moduleName,
+            completionItem: makeCompletionItem(moduleName, bareImportPath),
+        };
+    }
+
+    if (moduleUri.path.startsWith(tsProjectPath)) {
+        return {
+            type: 'relativeImport',
+            moduleName,
+            tsFilePath: moduleUri.path,
+        };
+    }
+
+    return {type: 'importDisallowed'};
+}
+
+export function makeCompletionItem(
+    moduleName: string,
+    importPath: string,
+): vscode.CompletionItem {
     const completionItem = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);
 
     // Right now the code in `.handleFileDeleted` relies on `.detail`
@@ -44,7 +69,7 @@ export function makeModuleNameAndCompletionItem(
         ),
     ];
 
-    return [moduleName, completionItem];
+    return completionItem;
 }
 
 function makeModuleName(uri: vscode.Uri): string {
@@ -52,7 +77,7 @@ function makeModuleName(uri: vscode.Uri): string {
     return _.camelCase(fileName);
 }
 
-function makeImportPath(
+function makeBareImportPath(
     tsProjectPath: TsProjectPath,
     tsProject: TsProject,
     moduleUri: vscode.Uri,
