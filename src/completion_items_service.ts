@@ -15,6 +15,7 @@ export type TsProject = {
     tsConfigJson: TsConfigJson;
     workspaceFolder: vscode.WorkspaceFolder;
     completionItemsByQueryFirstChar: Map<string, Array<vscode.CompletionItem>>;
+    modulesForRelativeImportByQueryFirstChar: Map<string, Array<ModuleForRelativeImport>>;
 };
 
 export type TsConfigJson = {
@@ -23,8 +24,13 @@ export type TsConfigJson = {
     outDir: string | null;
 };
 
+type ModuleForRelativeImport = {
+    moduleName: string;
+    tsFilePath: TsFilePath;
+};
+
 type WorkspaceName = string;
-type TsFilePath = string;
+export type TsFilePath = string;
 export type TsProjectPath = string;
 
 // type TsProject = {
@@ -72,7 +78,6 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     handleFileCreatedAsync = async (uri: vscode.Uri) => {
-        console.log(`file created: ${uri.path}`);
         if (pathUtil.basename(uri.path) === 'tsconfig.json') {
             await this.resetAsync(
                 Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
@@ -89,11 +94,22 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
 
         // Add file to all projects that can access it
         for (const [tsProjectPath, tsProject] of workspace.tsProjectByPath.entries()) {
-            const value = uriHelpers.makeModuleNameAndCompletionItem(tsProjectPath, tsProject, uri);
-            if (value !== null) {
-                const [moduleName, completionItem] = value;
-                u.map.getOrCreate(tsProject.completionItemsByQueryFirstChar, u.firstChar(moduleName), () => [])
-                    .push(completionItem);
+            const evalResult = uriHelpers.evaluateModuleForTsProject(tsProjectPath, tsProject, uri);
+            switch (evalResult.type) {
+                case 'bareImport': {
+                    const {moduleName, completionItem} = evalResult;
+                    u.map.getOrCreate(tsProject.completionItemsByQueryFirstChar, u.firstChar(moduleName), () => [])
+                        .push(completionItem);
+                    break;
+                }
+                case 'relativeImport': {
+                    const {moduleName, tsFilePath} = evalResult;
+                    u.map.getOrCreate(tsProject.modulesForRelativeImportByQueryFirstChar, u.firstChar(moduleName), () => [])
+                        .push({moduleName, tsFilePath});
+                    break;
+                }
+                case 'importDisallowed': break;
+                default: throw u.impossible(evalResult);
             }
         }
 
@@ -106,7 +122,6 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     handleFileDeletedAsync = async (uri: vscode.Uri) => {
-        console.log(`file deleted: ${uri.path}`);
         if (pathUtil.basename(uri.path) === 'tsconfig.json') {
             await this.resetAsync(
                 Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
@@ -123,16 +138,32 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
 
         // Remove file from all projects that had it cached
         for (const [tsProjectPath, tsProject] of workspace.tsProjectByPath.entries()) {
-            const value = uriHelpers.makeModuleNameAndCompletionItem(tsProjectPath, tsProject, uri);
-            if (value !== null) {
-                const [moduleName, completionItem] = value;
-                const itemsInMap = tsProject.completionItemsByQueryFirstChar.get(u.firstChar(moduleName));
-                if (itemsInMap !== undefined) {
-                    tsProject.completionItemsByQueryFirstChar.set(
-                        u.firstChar(moduleName),
-                        itemsInMap.filter(itemInMap => itemInMap.detail !== completionItem.detail),
-                    );
+            const evalResult = uriHelpers.evaluateModuleForTsProject(tsProjectPath, tsProject, uri);
+            switch (evalResult.type) {
+                case 'bareImport': {
+                    const {moduleName, completionItem} = evalResult;
+                    const itemsInMap = tsProject.completionItemsByQueryFirstChar.get(u.firstChar(moduleName));
+                    if (itemsInMap !== undefined) {
+                        tsProject.completionItemsByQueryFirstChar.set(
+                            u.firstChar(moduleName),
+                            itemsInMap.filter(itemInMap => itemInMap.detail !== completionItem.detail),
+                        );
+                    }
+                    break;
                 }
+                case 'relativeImport': {
+                    const {moduleName, tsFilePath} = evalResult;
+                    const modulesInMap = tsProject.modulesForRelativeImportByQueryFirstChar.get(u.firstChar(moduleName));
+                    if (modulesInMap !== undefined) {
+                        tsProject.modulesForRelativeImportByQueryFirstChar.set(
+                            u.firstChar(moduleName),
+                            modulesInMap.filter(module => module.tsFilePath !== tsFilePath),
+                        );
+                    }
+                    break;
+                }
+                case 'importDisallowed': break;
+                default: throw u.impossible(evalResult);
             }
         }
 
@@ -140,7 +171,6 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     handleFileChangedAsync = async (uri: vscode.Uri): Promise<void> => {
-        console.log(`changed: ${uri.path}`)
         if (pathUtil.basename(uri.path) === 'tsconfig.json') {
             await this.resetAsync(
                 Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
@@ -163,9 +193,21 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         }
         const currentProject = u.map.getOrThrow(workspace.tsProjectByPath, currentProjectPath);
 
-        // Get completion items from current project (now includes all accessible files)
-        const items = currentProject.completionItemsByQueryFirstChar.get(u.firstChar(query)) ?? [];
-        return new vscode.CompletionList(items, false);
+        const firstChar = u.firstChar(query);
+        const bareImportItems = currentProject.completionItemsByQueryFirstChar.get(firstChar) ?? [];
+
+        const modulesForRelativeImport = currentProject.modulesForRelativeImportByQueryFirstChar.get(firstChar) ?? [];
+        const currentFileDirPath = pathUtil.dirname(uri.path);
+
+        const relativeImportItems = modulesForRelativeImport.map(module => {
+            let importPath = pathUtil.relative(currentFileDirPath, module.tsFilePath);
+            if (!importPath.startsWith('..')) {
+                importPath = './' + importPath;
+            }
+            return uriHelpers.makeCompletionItem(module.moduleName, u.pathWithoutExt(importPath));
+        });
+
+        return new vscode.CompletionList([...bareImportItems, ...relativeImportItems], false);
     };
 
     private checkChangedFileAndGetWorkspace(uri: vscode.Uri): Result<Workspace, string> {
@@ -234,6 +276,7 @@ async function makeWorkspaceAsync(
                 tsConfigJson,
                 workspaceFolder,
                 completionItemsByQueryFirstChar: new Map(),
+                modulesForRelativeImportByQueryFirstChar: new Map(),
             },
         ])
     );
@@ -241,19 +284,28 @@ async function makeWorkspaceAsync(
     // Add each file to all projects that can access it via their path mappings
     for (const [tsProjectPath, tsProject] of tsProjectByPath) {
         for (const uri of uris) {
-            const value = uriHelpers.makeModuleNameAndCompletionItem(tsProjectPath, tsProject, uri);
-            if (value !== null) {
-                // Only add the file if it can be imported from this project
-                const [moduleName, completionItem] = value;
-                u.map.getOrCreate(tsProject.completionItemsByQueryFirstChar, u.firstChar(moduleName), () => [])
-                    .push(completionItem);
+            const evalResult = uriHelpers.evaluateModuleForTsProject(tsProjectPath, tsProject, uri);
+            switch (evalResult.type) {
+                case 'bareImport': {
+                    const {moduleName, completionItem} = evalResult;
+                    u.map.getOrCreate(tsProject.completionItemsByQueryFirstChar, u.firstChar(moduleName), () => [])
+                        .push(completionItem);
+                    break;
+                }
+                case 'relativeImport': {
+                    const {moduleName, tsFilePath} = evalResult;
+                    u.map.getOrCreate(tsProject.modulesForRelativeImportByQueryFirstChar, u.firstChar(moduleName), () => [])
+                        .push({moduleName, tsFilePath});
+                    break;
+                }
+                case 'importDisallowed': break;
+                default: throw u.impossible(evalResult);
             }
         }
     }
 
     const ownerTsProjectPathByTsFilePath = new Map<TsFilePath, TsProjectPath>();
     for (const uri of uris) {
-        // For file-to-project cache, use the project that physically contains the file
         const ownerTsProjectPath = uriHelpers.findOwnerTsProjectForTsFile(uri, tsProjectByPath.keys());
         if (ownerTsProjectPath !== null) {
             ownerTsProjectPathByTsFilePath.set(uri.path, ownerTsProjectPath);
