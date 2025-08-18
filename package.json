@@ -3,7 +3,7 @@
     "displayName": "Typescript Namespace Imports",
     "description": "Adds autocomplete support for `import * as moduleName from 'path/to/module_name'`",
     "repository": "https://github.com/echentw/typescript-namespace-imports-vscode-plugin",
-    "version": "0.3.3",
+    "version": "0.4.0",
     "publisher": "echentw",
     "engines": {
         "vscode": "^1.63.1"
