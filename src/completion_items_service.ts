@@ -14,7 +14,7 @@ type Workspace = {
 export type TsProject = {
     tsConfigJson: TsConfigJson;
     workspaceFolder: vscode.WorkspaceFolder;
-    completionItemsByQueryFirstChar: Map<string, Array<vscode.CompletionItem>>;
+    modulesForBareImportByQueryFirstChar: Map<string, Array<ModuleForBareImport>>;
     modulesForRelativeImportByQueryFirstChar: Map<string, Array<ModuleForRelativeImport>>;
 };
 
@@ -22,6 +22,12 @@ export type TsConfigJson = {
     baseUrl: string | null;
     paths: Record<string, Array<string>> | null;
     outDir: string | null;
+};
+
+type ModuleForBareImport = {
+    moduleName: string;
+    tsFilePath: TsFilePath;
+    importPath: string;
 };
 
 type ModuleForRelativeImport = {
@@ -32,11 +38,6 @@ type ModuleForRelativeImport = {
 type WorkspaceName = string;
 export type TsFilePath = string;
 export type TsProjectPath = string;
-
-// type TsProject = {
-// 	completionItemsByQueryFirstChar: Map<Char, Array<vscode.CompletionItem>>;
-// 	tsConfigJson: TsConfigJson;
-// };
 
 export type CompletionItemsService = {
     getCompletionList: (uri: vscode.Uri, query: string) => vscode.CompletionList | [];
@@ -97,15 +98,15 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
             const evalResult = uriHelpers.evaluateModuleForTsProject(tsProjectPath, tsProject, uri);
             switch (evalResult.type) {
                 case 'bareImport': {
-                    const {moduleName, completionItem} = evalResult;
-                    u.map.getOrCreate(tsProject.completionItemsByQueryFirstChar, u.firstChar(moduleName), () => [])
-                        .push(completionItem);
+                    const {moduleName, importPath} = evalResult;
+                    u.map.getOrCreate(tsProject.modulesForBareImportByQueryFirstChar, u.firstChar(moduleName), () => [])
+                        .push({moduleName, importPath, tsFilePath: uri.path});
                     break;
                 }
                 case 'relativeImport': {
-                    const {moduleName, tsFilePath} = evalResult;
+                    const {moduleName} = evalResult;
                     u.map.getOrCreate(tsProject.modulesForRelativeImportByQueryFirstChar, u.firstChar(moduleName), () => [])
-                        .push({moduleName, tsFilePath});
+                        .push({moduleName, tsFilePath: uri.path});
                     break;
                 }
                 case 'importDisallowed': break;
@@ -141,23 +142,23 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
             const evalResult = uriHelpers.evaluateModuleForTsProject(tsProjectPath, tsProject, uri);
             switch (evalResult.type) {
                 case 'bareImport': {
-                    const {moduleName, completionItem} = evalResult;
-                    const itemsInMap = tsProject.completionItemsByQueryFirstChar.get(u.firstChar(moduleName));
+                    const {moduleName} = evalResult;
+                    const itemsInMap = tsProject.modulesForBareImportByQueryFirstChar.get(u.firstChar(moduleName));
                     if (itemsInMap !== undefined) {
-                        tsProject.completionItemsByQueryFirstChar.set(
+                        tsProject.modulesForBareImportByQueryFirstChar.set(
                             u.firstChar(moduleName),
-                            itemsInMap.filter(itemInMap => itemInMap.detail !== completionItem.detail),
+                            itemsInMap.filter(itemInMap => itemInMap.tsFilePath !== uri.path),
                         );
                     }
                     break;
                 }
                 case 'relativeImport': {
-                    const {moduleName, tsFilePath} = evalResult;
+                    const {moduleName} = evalResult;
                     const modulesInMap = tsProject.modulesForRelativeImportByQueryFirstChar.get(u.firstChar(moduleName));
                     if (modulesInMap !== undefined) {
                         tsProject.modulesForRelativeImportByQueryFirstChar.set(
                             u.firstChar(moduleName),
-                            modulesInMap.filter(module => module.tsFilePath !== tsFilePath),
+                            modulesInMap.filter(module => module.tsFilePath !== uri.path),
                         );
                     }
                     break;
@@ -194,20 +195,24 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         const currentProject = u.map.getOrThrow(workspace.tsProjectByPath, currentProjectPath);
 
         const firstChar = u.firstChar(query);
-        const bareImportItems = currentProject.completionItemsByQueryFirstChar.get(firstChar) ?? [];
+        const completionItems: Array<vscode.CompletionItem> = [];
 
-        const modulesForRelativeImport = currentProject.modulesForRelativeImportByQueryFirstChar.get(firstChar) ?? [];
+        const modulesForBareImport = currentProject.modulesForBareImportByQueryFirstChar.get(firstChar) ?? [];
+        for (const {moduleName, importPath} of modulesForBareImport) {
+            completionItems.push(uriHelpers.makeCompletionItem(moduleName, importPath));
+        }
+
         const currentFileDirPath = pathUtil.dirname(uri.path);
-
-        const relativeImportItems = modulesForRelativeImport.map(module => {
-            let importPath = pathUtil.relative(currentFileDirPath, module.tsFilePath);
+        const modulesForRelativeImport = currentProject.modulesForRelativeImportByQueryFirstChar.get(firstChar) ?? [];
+        for (const {moduleName, tsFilePath} of modulesForRelativeImport) {
+            let importPath = pathUtil.relative(currentFileDirPath, tsFilePath);
             if (!importPath.startsWith('..')) {
                 importPath = './' + importPath;
             }
-            return uriHelpers.makeCompletionItem(module.moduleName, u.pathWithoutExt(importPath));
-        });
+            completionItems.push(uriHelpers.makeCompletionItem(moduleName, u.pathWithoutExt(importPath)));
+        }
 
-        return new vscode.CompletionList([...bareImportItems, ...relativeImportItems], false);
+        return new vscode.CompletionList(completionItems, false);
     };
 
     private checkChangedFileAndGetWorkspace(uri: vscode.Uri): Result<Workspace, string> {
@@ -275,7 +280,7 @@ async function makeWorkspaceAsync(
             {
                 tsConfigJson,
                 workspaceFolder,
-                completionItemsByQueryFirstChar: new Map(),
+                modulesForBareImportByQueryFirstChar: new Map(),
                 modulesForRelativeImportByQueryFirstChar: new Map(),
             },
         ])
@@ -287,15 +292,15 @@ async function makeWorkspaceAsync(
             const evalResult = uriHelpers.evaluateModuleForTsProject(tsProjectPath, tsProject, uri);
             switch (evalResult.type) {
                 case 'bareImport': {
-                    const {moduleName, completionItem} = evalResult;
-                    u.map.getOrCreate(tsProject.completionItemsByQueryFirstChar, u.firstChar(moduleName), () => [])
-                        .push(completionItem);
+                    const {moduleName, importPath} = evalResult;
+                    u.map.getOrCreate(tsProject.modulesForBareImportByQueryFirstChar, u.firstChar(moduleName), () => [])
+                        .push({moduleName, importPath, tsFilePath: uri.path});
                     break;
                 }
                 case 'relativeImport': {
-                    const {moduleName, tsFilePath} = evalResult;
+                    const {moduleName} = evalResult;
                     u.map.getOrCreate(tsProject.modulesForRelativeImportByQueryFirstChar, u.firstChar(moduleName), () => [])
-                        .push({moduleName, tsFilePath});
+                        .push({moduleName, tsFilePath: uri.path});
                     break;
                 }
                 case 'importDisallowed': break;

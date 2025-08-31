@@ -17,8 +17,8 @@ export function findOwnerTsProjectForTsFile(
 }
 
 type ModuleEvaluationForTsProject =
-    | {type: 'bareImport'; moduleName: string; completionItem: vscode.CompletionItem}
-    | {type: 'relativeImport'; moduleName: string; tsFilePath: TsFilePath}
+    | {type: 'bareImport'; moduleName: string; importPath: string}
+    | {type: 'relativeImport'; moduleName: string}
     | {type: 'importDisallowed'};
 
 // TODO: Looks like TsProject is needed to get the workspaceFolder.
@@ -37,7 +37,7 @@ export function evaluateModuleForTsProject(
         return {
             type: 'bareImport',
             moduleName,
-            completionItem: makeCompletionItem(moduleName, bareImportPath),
+            importPath: bareImportPath,
         };
     }
 
@@ -45,7 +45,6 @@ export function evaluateModuleForTsProject(
         return {
             type: 'relativeImport',
             moduleName,
-            tsFilePath: moduleUri.path,
         };
     }
 
