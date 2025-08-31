@@ -10,7 +10,13 @@ export function activate(context: vscode.ExtensionContext) {
         return;
     }
 
-    const service = CompletionItemsService.make(workspaceFolders);
+    function getQuoteStyle(): 'single' | 'double' {
+        const config = vscode.workspace.getConfiguration('typescriptNamespaceImports');
+        const quoteStyle = config.get<'single' | 'double'>('quoteStyle', 'single');
+        return quoteStyle;
+    }
+
+    const service = CompletionItemsService.make(workspaceFolders, getQuoteStyle);
 
     // Whenever there is a change to the workspace folders refresh the cache
     const workspaceWatcher = vscode.workspace.onDidChangeWorkspaceFolders(service.handleWorkspaceChangedAsync);

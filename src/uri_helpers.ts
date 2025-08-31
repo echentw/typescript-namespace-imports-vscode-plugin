@@ -54,6 +54,7 @@ export function evaluateModuleForTsProject(
 export function makeCompletionItem(
     moduleName: string,
     importPath: string,
+    quoteStyle: 'single' | 'double' = 'single',
 ): vscode.CompletionItem {
     const completionItem = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);
 
@@ -61,10 +62,11 @@ export function makeCompletionItem(
     // being a unique identifier for this module for this particular TS project.
     completionItem.detail = moduleName;
 
+    const quote = quoteStyle === 'double' ? '"' : "'";
     completionItem.additionalTextEdits = [
         vscode.TextEdit.insert(
             new vscode.Position(0, 0),
-            `import * as ${moduleName} from '${importPath}';\n`,
+            `import * as ${moduleName} from ${quote}${importPath}${quote};\n`,
         ),
     ];
 

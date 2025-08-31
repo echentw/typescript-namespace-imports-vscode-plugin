@@ -49,8 +49,8 @@ export type CompletionItemsService = {
 };
 
 export const CompletionItemsService = {
-    make: (workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>): CompletionItemsService => {
-        return new CompletionItemsServiceImpl(workspaceFolders);
+    make: (workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>, getQuoteStyle: () => 'single' | 'double'): CompletionItemsService => {
+        return new CompletionItemsServiceImpl(workspaceFolders, getQuoteStyle);
     },
 };
 
@@ -59,9 +59,11 @@ export const CompletionItemsService = {
 export class CompletionItemsServiceImpl implements CompletionItemsService {
     // Map from workspaceFolder.name -> cached workspace data
     private workspaceByName: Map<WorkspaceName, Workspace>;
+    private getQuoteStyle: () => 'single' | 'double';
 
-    constructor(workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>) {
+    constructor(workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>, getQuoteStyle: () => 'single' | 'double') {
         this.workspaceByName = new Map();
+        this.getQuoteStyle = getQuoteStyle;
 
         u.fireAndForget(async () => {
             await this.resetAsync(workspaceFolders);
@@ -200,7 +202,7 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         const modulesForBareImport = currentProject.modulesForBareImportByQueryFirstChar.get(firstChar) ?? [];
         for (const {moduleName, importPath, tsFilePath} of modulesForBareImport) {
             if (tsFilePath === uri.path) continue;
-            completionItems.push(uriHelpers.makeCompletionItem(moduleName, importPath));
+            completionItems.push(uriHelpers.makeCompletionItem(moduleName, importPath, this.getQuoteStyle()));
         }
 
         const currentFileDirPath = pathUtil.dirname(uri.path);
@@ -212,7 +214,7 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
             if (!importPath.startsWith('..')) {
                 importPath = './' + importPath;
             }
-            completionItems.push(uriHelpers.makeCompletionItem(moduleName, u.pathWithoutExt(importPath)));
+            completionItems.push(uriHelpers.makeCompletionItem(moduleName, u.pathWithoutExt(importPath), this.getQuoteStyle()));
         }
 
         return new vscode.CompletionList(completionItems, false);

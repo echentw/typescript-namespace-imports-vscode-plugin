@@ -16,7 +16,19 @@
         "onLanguage:typescriptreact"
     ],
     "main": "./out/extension",
-    "contributes": {},
+    "contributes": {
+        "configuration": {
+            "title": "Typescript Namespace Imports",
+            "properties": {
+                "typescriptNamespaceImports.quoteStyle": {
+                    "type": "string",
+                    "enum": ["single", "double"],
+                    "default": "single",
+                    "description": "Quote style to use for import statements"
+                }
+            }
+        }
+    },
     "scripts": {
         "vscode:prepublish": "npm run -S esbuild-base -- --minify",
         "esbuild-base": "rimraf out && esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
