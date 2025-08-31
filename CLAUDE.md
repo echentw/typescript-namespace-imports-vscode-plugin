@@ -4,44 +4,63 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a VS Code extension that provides TypeScript namespace import autocompletion. It converts snake_case file names to camelCase import suggestions for namespace imports (e.g., `import * as fileToImport from "file_to_import"`).
+This is a VSCode extension that provides autocomplete support for TypeScript namespace imports. It automatically suggests camelCase module names from TypeScript files in the workspace and inserts the corresponding `import * as moduleName from 'path/to/module_name'` statement.
 
 ## Development Commands
 
-- **Build for development**: `npm run build` - Compiles with sourcemaps using esbuild
-- **Watch mode**: `npm run watch` - Rebuilds automatically on file changes
-- **Build for production**: `npm run vscode:prepublish` - Minified build for publishing
-- **TypeScript build**: `npm run tsc-build` - TypeScript compiler build with strict type checking
-- **Lint**: `npm run lint` - ESLint with TypeScript extensions
-- **Format**: `npm run format` - Prettier formatting for all TypeScript files
-- **TypeScript watch**: `npm run tsc-watch` - TypeScript compiler in watch mode
+### Build and Watch
+- `npm run build` - Build with source maps using esbuild
+- `npm run watch` - Build with source maps and watch for changes
+- `npm run vscode:prepublish` - Production build with minification for publishing
+
+### Type Checking
+- `npm run tsc-build` - Run TypeScript compiler (type checking only)
+- `npm run tsc-watch` - Run TypeScript compiler in watch mode
+
+### Linting
+- `npm run lint` - Run ESLint on TypeScript files
 
 ## Architecture
 
-The extension follows a modular cache-based architecture:
-
 ### Core Components
 
-1. **Extension Entry Point** (`src/extension.ts`): Registers completion providers and manages VS Code integration
-2. **Completion Cache** (`src/completion_items_cache*.ts`): Interface and implementation for caching completion items across workspace folders
-3. **Completion Item Map** (`src/completion_item_map*.ts`): Efficient storage and retrieval of completion items using prefix-based mapping
-4. **URI Helpers** (`src/uri_helpers.ts`): Utilities for converting file URIs to completion items and handling path mappings
+**Extension Entry Point (`src/extension.ts`)**
+- Activates on TypeScript/React files
+- Sets up file system watchers for `tsconfig.json`, `.ts`, and `.tsx` files
+- Registers completion item provider
+- Includes GraphQL tag detection to avoid conflicts with GraphQL extensions
+
+**Completion Items Service (`src/completion_items_service.ts`)**
+- Main service managing workspace-level caching of modules
+- Maintains maps of available modules organized by first character for performance
+- Handles workspace changes and file system events
+- Supports both bare imports (via `baseUrl`/`paths` mappings) and relative imports
+- Parses `tsconfig.json` files to understand project structure and path mappings
+
+**URI Helpers (`src/uri_helpers.ts`)**
+- Evaluates whether files can be imported as bare imports or relative imports
+- Handles TypeScript path mapping resolution
+- Creates VSCode completion items with auto-import functionality
+- Converts file names to camelCase module names using lodash
+
+**Utilities (`src/u.ts`)**
+- Custom Result type for error handling
+- Map and iteration utilities
+- Path manipulation helpers
+- Comparison and sorting functions
 
 ### Key Features
 
-- **Multi-workspace support**: Handles multiple workspace folders with separate caches
-- **File system monitoring**: Automatically updates cache when TypeScript files are added/removed
-- **TypeScript configuration integration**: Respects `tsconfig.json` `baseUrl` and `paths` compiler options
-- **GraphQL template literal detection**: Avoids conflicting with GraphQL fragment completions
+**Multi-Project Support**: Discovers and handles multiple `tsconfig.json` files in nested project structures, with deeper projects taking precedence.
 
-### Caching Strategy
+**Path Mapping Resolution**: Supports TypeScript `baseUrl` and `paths` compiler options for resolving bare imports.
 
-The extension uses a two-level caching system:
-- Workspace-level cache containing base URL mappings and path mappings from tsconfig.json
-- Prefix-based completion item map for fast lookups during autocompletion
+**Performance Optimization**: Uses first-character indexing to quickly filter completion suggestions, making the extension performant even in large codebases.
 
-### Build System
+**File System Watching**: Automatically updates the module cache when files are added, removed, or moved.
 
-- **esbuild**: Used for fast bundling and minification
-- **External dependencies**: VS Code API is marked as external
-- **Output**: Single bundled file in `out/extension.js`
+**Import Conflict Avoidance**: Prevents suggesting imports for the current file and handles conflicts between path mappings and baseUrl resolutions.
+
+## Extension Configuration
+
+The extension activates on `typescript` and `typescriptreact` languages and requires VSCode ^1.63.1. It has no user-configurable settings currently.
