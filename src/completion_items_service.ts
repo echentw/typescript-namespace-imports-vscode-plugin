@@ -198,13 +198,16 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         const completionItems: Array<vscode.CompletionItem> = [];
 
         const modulesForBareImport = currentProject.modulesForBareImportByQueryFirstChar.get(firstChar) ?? [];
-        for (const {moduleName, importPath} of modulesForBareImport) {
+        for (const {moduleName, importPath, tsFilePath} of modulesForBareImport) {
+            if (tsFilePath === uri.path) continue;
             completionItems.push(uriHelpers.makeCompletionItem(moduleName, importPath));
         }
 
         const currentFileDirPath = pathUtil.dirname(uri.path);
         const modulesForRelativeImport = currentProject.modulesForRelativeImportByQueryFirstChar.get(firstChar) ?? [];
         for (const {moduleName, tsFilePath} of modulesForRelativeImport) {
+            if (tsFilePath === uri.path) continue;
+
             let importPath = pathUtil.relative(currentFileDirPath, tsFilePath);
             if (!importPath.startsWith('..')) {
                 importPath = './' + importPath;
