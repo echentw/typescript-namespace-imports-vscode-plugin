@@ -1,6 +1,11 @@
+import * as uriHelpers from './uri_helpers';
 import * as u from './u';
 import * as vscode from 'vscode';
-import {CompletionItemsService, ExtensionSettings} from './namespace_import_service';
+import {CompletionItemsService} from './namespace_import_service';
+
+type ExtensionSettings = {
+    quoteStyle: 'single' | 'double';
+};
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -52,6 +57,8 @@ export function activate(context: vscode.ExtensionContext) {
         ],
         {
             provideCompletionItems(doc: vscode.TextDocument, position: vscode.Position) {
+                const documentText = doc.getText();
+
                 const wordRange = doc.getWordRangeAtPosition(position);
                 // Don't provide completions if the cursor is inside a gql`` template literal to
                 // avoid conflicting with fragment name completions from the GraphQL extension.
@@ -59,7 +66,23 @@ export function activate(context: vscode.ExtensionContext) {
                     return new vscode.CompletionList([], true);
                 }
                 const word = doc.getText(wordRange);
-                return service.getCompletionList(doc.uri, word, extensionSettings);
+                const modulesForCompletion = service.getModulesForCompletion(doc.uri, word);
+
+                let quoteChar: string;
+                switch (extensionSettings.quoteStyle) {
+                    case 'single': quoteChar = "'"; break;
+                    case 'double': quoteChar = '"'; break;
+                    default: throw u.impossible(extensionSettings.quoteStyle);
+                }
+
+                const completionItems: Array<vscode.CompletionItem> = [];
+                for (const {moduleName, importPath} of modulesForCompletion) {
+                    const importStatement = `import * as ${moduleName} from ${quoteChar}${importPath}${quoteChar};\n`;
+                    if (!documentText.includes(importStatement)) {
+                        completionItems.push(uriHelpers.makeCompletionItem(moduleName, importStatement));
+                    }
+                }
+                return new vscode.CompletionList(completionItems, false);
             },
         },
     );

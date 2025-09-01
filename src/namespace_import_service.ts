@@ -39,21 +39,19 @@ type WorkspaceName = string;
 export type TsFilePath = string;
 export type TsProjectPath = string;
 
-export type ExtensionSettings = {
-    quoteStyle: 'single' | 'double';
-};
 
 export type CompletionItemsService = {
-    getCompletionList: (
-        uri: vscode.Uri,
-        query: string,
-        extensionSettings: ExtensionSettings,
-    ) => vscode.CompletionList | [];
+    getModulesForCompletion: (uri: vscode.Uri, query: string) => Array<ModuleForCompletion>;
 
     handleWorkspaceChangedAsync: (event: vscode.WorkspaceFoldersChangeEvent) => Promise<void>;
     handleFileCreatedAsync: (uri: vscode.Uri) => Promise<void>;
     handleFileDeletedAsync: (uri: vscode.Uri) => Promise<void>;
     handleFileChangedAsync: (uri: vscode.Uri) => Promise<void>;
+};
+
+export type ModuleForCompletion = {
+    moduleName: string;
+    importPath: string;
 };
 
 export const CompletionItemsService = {
@@ -186,11 +184,10 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         }
     };
 
-    getCompletionList = (
+    getModulesForCompletion = (
         uri: vscode.Uri,
         query: string,
-        extensionSettings: ExtensionSettings,
-    ): vscode.CompletionList | [] => {
+    ): Array<ModuleForCompletion> => {
         const checkResult = this.checkChangedFileAndGetWorkspace(uri);
         if (!checkResult.ok) {
             console.warn(`getCompletionList: ${checkResult.err}`);
@@ -206,13 +203,12 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         const currentProject = u.map.getOrThrow(workspace.tsProjectByPath, currentProjectPath);
 
         const firstChar = u.firstChar(query);
-        const {quoteStyle} = extensionSettings;
-        const completionItems: Array<vscode.CompletionItem> = [];
+        const modulesForCompletion: Array<ModuleForCompletion> = [];
 
         const modulesForBareImport = currentProject.modulesForBareImportByQueryFirstChar.get(firstChar) ?? [];
         for (const {moduleName, importPath, tsFilePath} of modulesForBareImport) {
             if (tsFilePath === uri.path) continue;
-            completionItems.push(uriHelpers.makeCompletionItem(moduleName, importPath, quoteStyle));
+            modulesForCompletion.push({moduleName, importPath});
         }
 
         const currentFileDirPath = pathUtil.dirname(uri.path);
@@ -225,10 +221,10 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
                 importPathWithExt = './' + importPathWithExt;
             }
             const importPath = u.pathWithoutExt(importPathWithExt);
-            completionItems.push(uriHelpers.makeCompletionItem(moduleName, importPath, quoteStyle));
+            modulesForCompletion.push({moduleName, importPath});
         }
 
-        return new vscode.CompletionList(completionItems, false);
+        return modulesForCompletion;
     };
 
     private checkChangedFileAndGetWorkspace(uri: vscode.Uri): Result<Workspace, string> {
