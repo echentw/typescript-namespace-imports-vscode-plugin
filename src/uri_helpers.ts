@@ -55,8 +55,13 @@ export function makeCompletionItem(
     moduleName: string,
     importStatement: string,
 ): vscode.CompletionItem {
-    const completionItem = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);
-    completionItem.detail = moduleName;
+    const completionItem = new vscode.CompletionItem(
+        {
+            label: moduleName,
+            description: 'namespace import',
+        },
+        vscode.CompletionItemKind.Module,
+    );
     completionItem.additionalTextEdits = [
         vscode.TextEdit.insert(new vscode.Position(0, 0), importStatement),
     ];
