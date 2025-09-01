@@ -1,7 +1,6 @@
 import * as u from './u';
 import * as vscode from 'vscode';
 import {CompletionItemsService, ExtensionSettings} from './completion_items_service';
-import { Result } from './u';
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed

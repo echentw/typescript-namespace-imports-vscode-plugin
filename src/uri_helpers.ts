@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as pathUtil from 'path';
 import * as _ from 'lodash';
 import * as u from './u';
-import {TsConfigJson, TsFilePath, TsProject, TsProjectPath} from './completion_items_service';
+import {ExtensionSettings, TsConfigJson, TsFilePath, TsProject, TsProjectPath} from './completion_items_service';
 
 export function findOwnerTsProjectForTsFile(
     uri: vscode.Uri,
@@ -54,7 +54,7 @@ export function evaluateModuleForTsProject(
 export function makeCompletionItem(
     moduleName: string,
     importPath: string,
-    quoteStyle: 'single' | 'double' = 'single',
+    quoteStyle: ExtensionSettings['quoteStyle'],
 ): vscode.CompletionItem {
     const completionItem = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);
 
@@ -62,11 +62,17 @@ export function makeCompletionItem(
     // being a unique identifier for this module for this particular TS project.
     completionItem.detail = moduleName;
 
-    const quote = quoteStyle === 'double' ? '"' : "'";
+    let quoteChar: string;
+    switch (quoteStyle) {
+        case 'single': quoteChar = "'"; break;
+        case 'double': quoteChar = '"'; break;
+        default: throw u.impossible(quoteStyle);
+    }
+
     completionItem.additionalTextEdits = [
         vscode.TextEdit.insert(
             new vscode.Position(0, 0),
-            `import * as ${moduleName} from ${quote}${importPath}${quote};\n`,
+            `import * as ${moduleName} from ${quoteChar}${importPath}${quoteChar};\n`,
         ),
     ];
 
