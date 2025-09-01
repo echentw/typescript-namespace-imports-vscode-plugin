@@ -22,9 +22,12 @@
             "properties": {
                 "typescriptNamespaceImports.quoteStyle": {
                     "type": "string",
-                    "enum": ["single", "double"],
+                    "enum": [
+                        "single",
+                        "double"
+                    ],
                     "default": "single",
-                    "description": "Quote style to use for import statements"
+                    "description": "Whether the auto-inserted import statement should use single or double quotes."
                 }
             }
         }
@@ -40,7 +43,7 @@
     },
     "devDependencies": {
         "@types/lodash": "^4.14.118",
-        "@types/node": "^7.0.43",
+        "@types/node": "^24.3.0",
         "@types/vscode": "^1.63.1",
         "@typescript-eslint/eslint-plugin": "^5.9.0",
         "@typescript-eslint/parser": "^5.9.0",
@@ -50,6 +53,6 @@
     "dependencies": {
         "lodash": "^4.17.21",
         "path": "^0.12.7",
-        "typescript": "^4.5.4"
+        "typescript": "^5.9.2"
     }
 }
