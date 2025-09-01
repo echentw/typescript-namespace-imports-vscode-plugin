@@ -39,8 +39,16 @@ type WorkspaceName = string;
 export type TsFilePath = string;
 export type TsProjectPath = string;
 
+export type ExtensionSettings = {
+    quoteStyle: 'single' | 'double';
+};
+
 export type CompletionItemsService = {
-    getCompletionList: (uri: vscode.Uri, query: string) => vscode.CompletionList | [];
+    getCompletionList: (
+        uri: vscode.Uri,
+        query: string,
+        extensionSettings: ExtensionSettings,
+    ) => vscode.CompletionList | [];
 
     handleWorkspaceChangedAsync: (event: vscode.WorkspaceFoldersChangeEvent) => Promise<void>;
     handleFileCreatedAsync: (uri: vscode.Uri) => Promise<void>;
@@ -57,7 +65,6 @@ export const CompletionItemsService = {
 // TODO: Using this map makes intellisense quick even in large projects, but a more elegant
 // solution might be to implement some type of trie tree for CompletionItems
 export class CompletionItemsServiceImpl implements CompletionItemsService {
-    // Map from workspaceFolder.name -> cached workspace data
     private workspaceByName: Map<WorkspaceName, Workspace>;
 
     constructor(workspaceFolders: ReadonlyArray<vscode.WorkspaceFolder>) {
@@ -179,7 +186,11 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         }
     };
 
-    getCompletionList = (uri: vscode.Uri, query: string): vscode.CompletionList | [] => {
+    getCompletionList = (
+        uri: vscode.Uri,
+        query: string,
+        extensionSettings: ExtensionSettings,
+    ): vscode.CompletionList | [] => {
         const checkResult = this.checkChangedFileAndGetWorkspace(uri);
         if (!checkResult.ok) {
             console.warn(`getCompletionList: ${checkResult.err}`);
@@ -195,12 +206,13 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         const currentProject = u.map.getOrThrow(workspace.tsProjectByPath, currentProjectPath);
 
         const firstChar = u.firstChar(query);
+        const {quoteStyle} = extensionSettings;
         const completionItems: Array<vscode.CompletionItem> = [];
 
         const modulesForBareImport = currentProject.modulesForBareImportByQueryFirstChar.get(firstChar) ?? [];
         for (const {moduleName, importPath, tsFilePath} of modulesForBareImport) {
             if (tsFilePath === uri.path) continue;
-            completionItems.push(uriHelpers.makeCompletionItem(moduleName, importPath));
+            completionItems.push(uriHelpers.makeCompletionItem(moduleName, importPath, quoteStyle));
         }
 
         const currentFileDirPath = pathUtil.dirname(uri.path);
@@ -208,11 +220,12 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         for (const {moduleName, tsFilePath} of modulesForRelativeImport) {
             if (tsFilePath === uri.path) continue;
 
-            let importPath = pathUtil.relative(currentFileDirPath, tsFilePath);
-            if (!importPath.startsWith('..')) {
-                importPath = './' + importPath;
+            let importPathWithExt = pathUtil.relative(currentFileDirPath, tsFilePath);
+            if (!importPathWithExt.startsWith('..')) {
+                importPathWithExt = './' + importPathWithExt;
             }
-            completionItems.push(uriHelpers.makeCompletionItem(moduleName, u.pathWithoutExt(importPath)));
+            const importPath = u.pathWithoutExt(importPathWithExt);
+            completionItems.push(uriHelpers.makeCompletionItem(moduleName, importPath, quoteStyle));
         }
 
         return new vscode.CompletionList(completionItems, false);

@@ -20,4 +20,14 @@ workspace, it will offer to import it as a module called
 
 ## Extension Settings
 
-None yet.
+```
+"typescriptNamespaceImports.quoteStyle": {
+    "type": "string",
+    "enum": [
+        "single",
+        "double"
+    ],
+    "default": "single",
+    "description": "Whether the auto-inserted import statement should use single or double quotes."
+}
+```

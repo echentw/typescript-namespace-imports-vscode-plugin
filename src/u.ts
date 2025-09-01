@@ -6,14 +6,30 @@ export const Result = {
     err: <ErrT>(err: ErrT) => new ResultErr(err),
 };
 
-class ResultOk<T> {
+class ResultOk<OkT> {
     public readonly ok = true;
-    constructor(public readonly value: T) {}
+    constructor(public readonly value: OkT) {}
+
+    mapOk = <OkU>(fn: (value: OkT) => OkU): ResultOk<OkU> => {
+        return Result.ok(fn(this.value));
+    };
+
+    mapErr = <ErrU>(fn: (err: never) => ErrU): ResultOk<OkT> => {
+        return this;
+    };
 }
 
 class ResultErr<ErrT> {
     public readonly ok = false;
     constructor(public readonly err: ErrT) {}
+
+    mapOk = <OkU>(fn: (value: never) => OkU): ResultErr<ErrT> => {
+        return this;
+    };
+
+    mapErr = <ErrU>(fn: (err: ErrT) => ErrU): ResultErr<ErrU> => {
+        return Result.err(fn(this.err));
+    };
 }
 
 export function q(s: string): string {
@@ -133,5 +149,24 @@ export namespace cmp {
             const outB = transformFn(inB);
             return cmpFn(outA, outB);
         };
+    }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export namespace parse {
+    type Parser<InT, OutT> = (input: InT) => Result<OutT, string>;
+
+    export namespace string {
+        export namespace to {
+            export function literalUnion<const T extends Array<string>>(values: T): Parser<string, T[number]> {
+                return input => {
+                    const value = values.find(v => v === input);
+                    if (value === undefined) {
+                        return Result.err(`Expected one of [${values.map(q).join(',')}]. Got: ${q(input)}.`);
+                    }
+                    return Result.ok(value);
+                };
+            }
+        }
     }
 }

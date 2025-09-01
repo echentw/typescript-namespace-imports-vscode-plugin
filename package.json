@@ -3,7 +3,7 @@
     "displayName": "Typescript Namespace Imports",
     "description": "Adds autocomplete support for `import * as moduleName from 'path/to/module_name'`",
     "repository": "https://github.com/echentw/typescript-namespace-imports-vscode-plugin",
-    "version": "0.4.1",
+    "version": "0.5.0",
     "publisher": "echentw",
     "engines": {
         "vscode": "^1.63.1"
@@ -16,7 +16,22 @@
         "onLanguage:typescriptreact"
     ],
     "main": "./out/extension",
-    "contributes": {},
+    "contributes": {
+        "configuration": {
+            "title": "Typescript Namespace Imports",
+            "properties": {
+                "typescriptNamespaceImports.quoteStyle": {
+                    "type": "string",
+                    "enum": [
+                        "single",
+                        "double"
+                    ],
+                    "default": "single",
+                    "description": "Whether the auto-inserted import statement should use single or double quotes."
+                }
+            }
+        }
+    },
     "scripts": {
         "vscode:prepublish": "npm run -S esbuild-base -- --minify",
         "esbuild-base": "rimraf out && esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
@@ -28,7 +43,7 @@
     },
     "devDependencies": {
         "@types/lodash": "^4.14.118",
-        "@types/node": "^7.0.43",
+        "@types/node": "^24.3.0",
         "@types/vscode": "^1.63.1",
         "@typescript-eslint/eslint-plugin": "^5.9.0",
         "@typescript-eslint/parser": "^5.9.0",
@@ -38,6 +53,6 @@
     "dependencies": {
         "lodash": "^4.17.21",
         "path": "^0.12.7",
-        "typescript": "^4.5.4"
+        "typescript": "^5.9.2"
     }
 }
