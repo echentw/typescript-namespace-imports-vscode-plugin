@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as pathUtil from 'path';
 import * as _ from 'lodash';
 import * as u from './u';
-import {ExtensionSettings, TsConfigJson, TsFilePath, TsProject, TsProjectPath} from './completion_items_service';
+import {ExtensionSettings, TsConfigJson, TsFilePath, TsProject, TsProjectPath} from './namespace_import_service';
 
 export function findOwnerTsProjectForTsFile(
     uri: vscode.Uri,
