@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as pathUtil from 'path';
 import * as _ from 'lodash';
 import * as u from './u';
-import {ExtensionSettings, TsConfigJson, TsFilePath, TsProject, TsProjectPath} from './completion_items_service';
+import {TsConfigJson, TsProject, TsProjectPath} from './namespace_import_service';
 
 export function findOwnerTsProjectForTsFile(
     uri: vscode.Uri,
@@ -53,29 +53,13 @@ export function evaluateModuleForTsProject(
 
 export function makeCompletionItem(
     moduleName: string,
-    importPath: string,
-    quoteStyle: ExtensionSettings['quoteStyle'],
+    importStatement: string,
 ): vscode.CompletionItem {
     const completionItem = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);
-
-    // Right now the code in `.handleFileDeleted` relies on `.detail`
-    // being a unique identifier for this module for this particular TS project.
     completionItem.detail = moduleName;
-
-    let quoteChar: string;
-    switch (quoteStyle) {
-        case 'single': quoteChar = "'"; break;
-        case 'double': quoteChar = '"'; break;
-        default: throw u.impossible(quoteStyle);
-    }
-
     completionItem.additionalTextEdits = [
-        vscode.TextEdit.insert(
-            new vscode.Position(0, 0),
-            `import * as ${moduleName} from ${quoteChar}${importPath}${quoteChar};\n`,
-        ),
+        vscode.TextEdit.insert(new vscode.Position(0, 0), importStatement),
     ];
-
     return completionItem;
 }
 
