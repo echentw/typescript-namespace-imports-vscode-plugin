@@ -263,7 +263,7 @@ async function updateWorkspaceByNameInPlaceAsync(
     for (const folder of foldersToDelete) {
         workspaceByName.delete(folder.name);
     }
-    console.log('workspaceByName', u.stringify(workspaceByName));
+    // console.log('workspaceByName', u.stringify(workspaceByName));
 }
 
 async function makeWorkspaceAsync(
