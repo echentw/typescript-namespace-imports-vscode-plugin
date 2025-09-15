@@ -45,10 +45,16 @@ export function activate(context: vscode.ExtensionContext) {
     const workspaceWatcher = vscode.workspace.onDidChangeWorkspaceFolders(service.handleWorkspaceChangedAsync);
 
     // Whenever a file is added or removed refresh the cache
-    const fileSystemWatcher = vscode.workspace.createFileSystemWatcher('**/{tsconfig.json,*.ts,*.tsx}', false, false, false);
-    fileSystemWatcher.onDidCreate(service.handleFileCreatedAsync);
-    fileSystemWatcher.onDidDelete(service.handleFileDeletedAsync);
-    fileSystemWatcher.onDidChange(service.handleFileChangedAsync);
+    const fileSystemWatcher = vscode.workspace.createFileSystemWatcher('**/*', false, false, false);
+    fileSystemWatcher.onDidCreate((...args) => {
+        service.handleFileCreatedAsync(...args);
+    });
+    fileSystemWatcher.onDidDelete((...args) => {
+        service.handleFileDeletedAsync(...args);
+    });
+    fileSystemWatcher.onDidChange((...args) => {
+        service.handleFileChangedAsync(...args);
+    });
 
     const provider = vscode.languages.registerCompletionItemProvider(
         [

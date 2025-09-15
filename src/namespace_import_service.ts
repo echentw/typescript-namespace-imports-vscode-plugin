@@ -90,6 +90,7 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
             );
             return;
         }
+        if (!isTsFile(uri)) return;
 
         const checkResult = this.checkChangedFileAndGetWorkspace(uri);
         if (!checkResult.ok) {
@@ -128,13 +129,6 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
     };
 
     handleFileDeletedAsync = async (uri: vscode.Uri) => {
-        if (pathUtil.basename(uri.path) === 'tsconfig.json') {
-            await this.resetAsync(
-                Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
-            );
-            return;
-        }
-
         const checkResult = this.checkChangedFileAndGetWorkspace(uri);
         if (!checkResult.ok) {
             console.warn(`handleFileDeleted: ${checkResult.err}`);
@@ -142,38 +136,84 @@ export class CompletionItemsServiceImpl implements CompletionItemsService {
         }
         const workspace = checkResult.value;
 
-        // Remove file from all projects that had it cached
-        for (const [tsProjectPath, tsProject] of workspace.tsProjectByPath.entries()) {
-            const evalResult = uriHelpers.evaluateModuleForTsProject(tsProjectPath, tsProject, uri);
-            switch (evalResult.type) {
-                case 'bareImport': {
-                    const {moduleName} = evalResult;
-                    const itemsInMap = tsProject.modulesForBareImportByQueryFirstChar.get(u.firstChar(moduleName));
-                    if (itemsInMap !== undefined) {
-                        tsProject.modulesForBareImportByQueryFirstChar.set(
-                            u.firstChar(moduleName),
-                            itemsInMap.filter(itemInMap => itemInMap.tsFilePath !== uri.path),
-                        );
-                    }
-                    break;
-                }
-                case 'relativeImport': {
-                    const {moduleName} = evalResult;
-                    const modulesInMap = tsProject.modulesForRelativeImportByQueryFirstChar.get(u.firstChar(moduleName));
-                    if (modulesInMap !== undefined) {
-                        tsProject.modulesForRelativeImportByQueryFirstChar.set(
-                            u.firstChar(moduleName),
-                            modulesInMap.filter(module => module.tsFilePath !== uri.path),
-                        );
-                    }
-                    break;
-                }
-                case 'importDisallowed': break;
-                default: throw u.impossible(evalResult);
-            }
-        }
+        if (pathUtil.extname(uri.path) === '') {
+            // If 'uri' looks like a directory...
 
-        workspace.ownerTsProjectPathByTsFilePath.delete(uri.path);
+            for (const tsProjectPath of workspace.tsProjectByPath.keys()) {
+                if (tsProjectPath.startsWith(uri.path)) {
+                    await this.resetAsync(
+                        Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
+                    );
+                    return;
+                }
+            }
+
+            for (const tsProject of workspace.tsProjectByPath.values()) {
+                for (const [key, modules] of tsProject.modulesForBareImportByQueryFirstChar) {
+                    tsProject.modulesForBareImportByQueryFirstChar.set(
+                        key,
+                        modules.filter(module => !module.tsFilePath.startsWith(uri.path)),
+                    );
+                }
+                for (const [key, modules] of tsProject.modulesForRelativeImportByQueryFirstChar) {
+                    tsProject.modulesForRelativeImportByQueryFirstChar.set(
+                        key,
+                        modules.filter(module => !module.tsFilePath.startsWith(uri.path)),
+                    );
+                }
+            }
+
+            const toRemove: Array<TsFilePath> = [];
+            for (const tsFilePath of workspace.ownerTsProjectPathByTsFilePath.keys()) {
+                if (tsFilePath.startsWith(uri.path)) {
+                    toRemove.push(tsFilePath);
+                }
+            }
+            for (const tsFilePath of toRemove) {
+                workspace.ownerTsProjectPathByTsFilePath.delete(tsFilePath);
+            }
+        } else {
+            if (pathUtil.basename(uri.path) === 'tsconfig.json') {
+                await this.resetAsync(
+                    Array.from(this.workspaceByName.values()).map(workspace => workspace.workspaceFolder),
+                );
+                return;
+            }
+            if (!isTsFile(uri)) return;
+
+            // Remove file from all projects that had it cached
+            for (const [tsProjectPath, tsProject] of workspace.tsProjectByPath.entries()) {
+                const evalResult = uriHelpers.evaluateModuleForTsProject(tsProjectPath, tsProject, uri);
+                switch (evalResult.type) {
+                    case 'bareImport': {
+                        const {moduleName} = evalResult;
+                        const itemsInMap = tsProject.modulesForBareImportByQueryFirstChar.get(u.firstChar(moduleName));
+                        if (itemsInMap !== undefined) {
+                            tsProject.modulesForBareImportByQueryFirstChar.set(
+                                u.firstChar(moduleName),
+                                itemsInMap.filter(itemInMap => itemInMap.tsFilePath !== uri.path),
+                            );
+                        }
+                        break;
+                    }
+                    case 'relativeImport': {
+                        const {moduleName} = evalResult;
+                        const modulesInMap = tsProject.modulesForRelativeImportByQueryFirstChar.get(u.firstChar(moduleName));
+                        if (modulesInMap !== undefined) {
+                            tsProject.modulesForRelativeImportByQueryFirstChar.set(
+                                u.firstChar(moduleName),
+                                modulesInMap.filter(module => module.tsFilePath !== uri.path),
+                            );
+                        }
+                        break;
+                    }
+                    case 'importDisallowed': break;
+                    default: throw u.impossible(evalResult);
+                }
+            }
+
+            workspace.ownerTsProjectPathByTsFilePath.delete(uri.path);
+        }
     };
 
     handleFileChangedAsync = async (uri: vscode.Uri): Promise<void> => {
@@ -428,4 +468,8 @@ function getWorkspaceFolderFromUri(uri: vscode.Uri): vscode.WorkspaceFolder | nu
         console.error('URI in undefined workspaceFolder', uri);
     }
     return workspaceFolder;
+}
+
+function isTsFile(uri: vscode.Uri): boolean {
+    return uri.path.endsWith('.ts') || uri.path.endsWith('.tsx');
 }
